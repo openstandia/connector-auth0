@@ -29,7 +29,7 @@ public abstract class AbstractTest {
 
     protected Auth0Configuration newConfiguration() {
         Auth0Configuration conf = new Auth0Configuration();
-        conf.setUserPoolID("testPool");
+        conf.setDomain("testPool");
         return conf;
     }
 

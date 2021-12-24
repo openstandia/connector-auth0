@@ -25,7 +25,6 @@ import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityPr
 import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
 import software.amazon.awssdk.services.cognitoidentityprovider.paginators.ListGroupsIterable;
 
-import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Set;
 
@@ -33,24 +32,15 @@ import static jp.openstandia.connector.auth0.Auth0Utils.*;
 
 public class Auth0RoleHandler {
 
-    public static final ObjectClass GROUP_OBJECT_CLASS = new ObjectClass("Group");
+    public static final ObjectClass GROUP_OBJECT_CLASS = new ObjectClass("Role");
 
     private static final Log LOGGER = Log.getLog(Auth0RoleHandler.class);
 
     // Unique and unchangeable within the user pool
-    private static final String ATTR_GROUP_NAME = "GroupName";
+    private static final String ATTR_ROLE_NAME = "name";
 
     // Attributes
-    private static final String ATTR_DESCRIPTION = "Description";
-    private static final String ATTR_PRECEDENCE = "Precedence";
-    private static final String ATTR_ROLE_ARN = "RoleArn";
-
-    // Metadata
-    private static final String ATTR_CREATION_DATE = "CreationDate";
-    private static final String ATTR_LAST_MODIFIED_DATE = "LastModifiedDate";
-
-    // Association
-    private static final String ATTR_USERS = "users";
+    private static final String ATTR_DESCRIPTION = "description";
 
     private final Auth0Configuration configuration;
     private final CognitoIdentityProviderClient client;
@@ -62,7 +52,7 @@ public class Auth0RoleHandler {
         this.userGroupHandler = new Auth0AssociationHandler(configuration, client);
     }
 
-    public static ObjectClassInfo getGroupSchema(UserPoolType userPoolType) {
+    public static ObjectClassInfo getGroupSchema(Auth0Configuration config) {
         ObjectClassInfoBuilder builder = new ObjectClassInfoBuilder();
         builder.setType(GROUP_OBJECT_CLASS.getObjectClassValue());
 
@@ -70,49 +60,28 @@ public class Auth0RoleHandler {
         builder.addAttributeInfo(AttributeInfoBuilder.define(Uid.NAME)
                 .setRequired(true)
                 .setUpdateable(false)
-                .setNativeName(ATTR_GROUP_NAME)
+                .setNativeName(ATTR_ROLE_NAME)
                 .build());
         // __NAME__
         builder.addAttributeInfo(AttributeInfoBuilder.define(Name.NAME)
                 .setRequired(true)
                 .setUpdateable(false)
-                .setNativeName(ATTR_GROUP_NAME)
+                .setNativeName(ATTR_ROLE_NAME)
                 .build());
 
-        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_CREATION_DATE)
-                .setType(ZonedDateTime.class)
-                .setCreateable(false)
-                .setUpdateable(false)
-                .build());
-        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_LAST_MODIFIED_DATE)
-                .setType(ZonedDateTime.class)
-                .setCreateable(false)
-                .setUpdateable(false)
-                .build());
         builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_DESCRIPTION)
                 .build());
-        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_PRECEDENCE)
-                .setType(Integer.class)
-                .build());
-        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_ROLE_ARN)
-                .build());
 
-        // Association
-        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_USERS)
-                .setMultiValued(true)
-                .setReturnedByDefault(false)
-                .build());
+        ObjectClassInfo roleSchemaInfo = builder.build();
 
-        ObjectClassInfo groupSchemaInfo = builder.build();
+        LOGGER.info("The constructed Role schema: {0}", roleSchemaInfo);
 
-        LOGGER.info("The constructed Group core schema: {0}", groupSchemaInfo);
-
-        return groupSchemaInfo;
+        return roleSchemaInfo;
     }
 
     /**
-     * The spec for CreateGroup:
-     * https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_CreateGroup.html
+     * The spec for create a role:
+     * https://auth0.com/docs/api/management/v2/#!/Roles/post_roles
      *
      * @param attributes
      * @return
@@ -120,7 +89,7 @@ public class Auth0RoleHandler {
      *                                Or there is a similar violation in any of the object attributes that
      *                                cannot be distinguished from AlreadyExists situation.
      */
-    public Uid createGroup(Set<Attribute> attributes) throws AlreadyExistsException {
+    public Uid createRole(Set<Attribute> attributes) throws AlreadyExistsException {
         if (attributes == null || attributes.isEmpty()) {
             throw new InvalidAttributeValueException("attributes not provided or empty");
         }
@@ -133,22 +102,13 @@ public class Auth0RoleHandler {
             } else if (attr.getName().equals(ATTR_DESCRIPTION)) {
                 newGroup.applyDescription(attr);
 
-            } else if (attr.getName().equals(ATTR_PRECEDENCE)) {
-                newGroup.applyPrecedence(attr);
-
-            } else if (attr.getName().equals(ATTR_ROLE_ARN)) {
-                newGroup.applyRoleArn(attr);
-
-            } else if (attr.getName().equals(ATTR_USERS)) {
-                newGroup.applyUsers(attr);
-
             } else {
                 invalidSchema(attr.getName());
             }
         }
 
         CreateGroupRequest request = CreateGroupRequest.builder()
-                .userPoolId(configuration.getUserPoolID())
+                .userPoolId(configuration.getDomain())
                 .groupName(newGroup.groupName)
                 .description(newGroup.description)
                 .precedence(newGroup.precedence)
@@ -208,15 +168,6 @@ public class Auth0RoleHandler {
             if (delta.getName().equals(ATTR_DESCRIPTION)) {
                 modifyGroup.applyDescription(delta);
 
-            } else if (delta.getName().equals(ATTR_PRECEDENCE)) {
-                modifyGroup.applyPrecedence(delta);
-
-            } else if (delta.getName().equals(ATTR_ROLE_ARN)) {
-                modifyGroup.applyRoleArn(delta);
-
-            } else if (delta.getName().equals(ATTR_USERS)) {
-                modifyGroup.applyUsers(delta);
-
             } else {
                 invalidSchema(delta.getName());
             }
@@ -227,7 +178,7 @@ public class Auth0RoleHandler {
                 modifyGroup.roleArn != null) {
             try {
                 UpdateGroupRequest request = UpdateGroupRequest.builder()
-                        .userPoolId(configuration.getUserPoolID())
+                        .userPoolId(configuration.getDomain())
                         .groupName(uid.getUidValue())
                         .description(modifyGroup.description)
                         .precedence(modifyGroup.precedence)
@@ -345,7 +296,7 @@ public class Auth0RoleHandler {
             userGroupHandler.removeAllUsers(uid.getUidValue());
 
             DeleteGroupResponse result = client.deleteGroup(DeleteGroupRequest.builder()
-                    .userPoolId(configuration.getUserPoolID())
+                    .userPoolId(configuration.getDomain())
                     .groupName(uid.getUidValue()).build());
 
             checkCognitoResult(result, "DeleteGroup");
@@ -373,7 +324,7 @@ public class Auth0RoleHandler {
         // Cannot filter using Cognito API unfortunately...
         // So we always return all groups here.
         ListGroupsRequest.Builder request = ListGroupsRequest.builder();
-        request.userPoolId(configuration.getUserPoolID());
+        request.userPoolId(configuration.getDomain());
 
         ListGroupsIterable result = client.listGroupsPaginator(request.build());
 
@@ -383,7 +334,7 @@ public class Auth0RoleHandler {
     private void getGroupByName(String groupName,
                                 ResultsHandler resultsHandler, OperationOptions options) {
         GetGroupResponse result = client.getGroup(GetGroupRequest.builder()
-                .userPoolId(configuration.getUserPoolID())
+                .userPoolId(configuration.getDomain())
                 .groupName(groupName).build());
 
         checkCognitoResult(result, "GetGroup");
@@ -405,21 +356,6 @@ public class Auth0RoleHandler {
         for (String getAttr : attributesToGet) {
             if (getAttr.equals(ATTR_DESCRIPTION)) {
                 builder.addAttribute(ATTR_DESCRIPTION, g.description());
-
-            } else if (getAttr.equals(ATTR_PRECEDENCE)) {
-                builder.addAttribute(ATTR_PRECEDENCE, g.precedence());
-
-            } else if (getAttr.equals(ATTR_ROLE_ARN)) {
-                builder.addAttribute(ATTR_ROLE_ARN, g.roleArn());
-
-            } else if (getAttr.equals(ATTR_CREATION_DATE)) {
-                builder.addAttribute(ATTR_CREATION_DATE, toZoneDateTime(g.creationDate()));
-
-            } else if (getAttr.equals(ATTR_LAST_MODIFIED_DATE)) {
-                builder.addAttribute(ATTR_LAST_MODIFIED_DATE, toZoneDateTime(g.lastModifiedDate()));
-
-            } else if (getAttr.equals(ATTR_USERS)) {
-                builder.addAttribute(ATTR_USERS, userGroupHandler.getUsersInGroup(g.groupName()));
             }
         }
 
@@ -431,11 +367,7 @@ public class Auth0RoleHandler {
                 .setObjectClass(GROUP_OBJECT_CLASS)
                 .setUid(new Uid(g.groupName(), new Name(g.groupName())))
                 .setName(g.groupName())
-                .addAttribute(ATTR_DESCRIPTION, g.description())
-                .addAttribute(ATTR_PRECEDENCE, g.precedence())
-                .addAttribute(ATTR_ROLE_ARN, g.roleArn())
-                .addAttribute(ATTR_CREATION_DATE, toZoneDateTime(g.creationDate()))
-                .addAttribute(ATTR_LAST_MODIFIED_DATE, toZoneDateTime(g.lastModifiedDate()));
+                .addAttribute(ATTR_DESCRIPTION, g.description());
 
         return builder.build();
     }

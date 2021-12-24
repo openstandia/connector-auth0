@@ -15,6 +15,7 @@
  */
 package jp.openstandia.connector.auth0;
 
+import com.auth0.client.mgmt.ManagementAPI;
 import org.identityconnectors.common.logging.Log;
 import org.identityconnectors.framework.common.objects.Name;
 import org.identityconnectors.framework.common.objects.Uid;
@@ -36,10 +37,18 @@ public class Auth0AssociationHandler {
 
     private final Auth0Configuration configuration;
     private final CognitoIdentityProviderClient client;
+    private final ManagementAPI client2;
 
     public Auth0AssociationHandler(Auth0Configuration configuration, CognitoIdentityProviderClient client) {
         this.configuration = configuration;
         this.client = client;
+        this.client2 = null;
+    }
+
+    public Auth0AssociationHandler(Auth0Configuration configuration, ManagementAPI client) {
+        this.configuration = configuration;
+        this.client = null;
+        this.client2 = client;
     }
 
     public void addGroupsToUser(Name name, List<Object> addGroups) {
@@ -87,7 +96,7 @@ public class Auth0AssociationHandler {
 
     private void addUserToGroup(String username, String groupName) {
         AdminAddUserToGroupRequest.Builder request = AdminAddUserToGroupRequest.builder()
-                .userPoolId(configuration.getUserPoolID())
+                .userPoolId(configuration.getDomain())
                 .username(username)
                 .groupName(groupName);
 
@@ -98,7 +107,7 @@ public class Auth0AssociationHandler {
 
     private void removeUserFromGroup(String username, String groupName) {
         AdminRemoveUserFromGroupRequest.Builder request = AdminRemoveUserFromGroupRequest.builder()
-                .userPoolId(configuration.getUserPoolID())
+                .userPoolId(configuration.getDomain())
                 .username(username)
                 .groupName(groupName);
 
@@ -126,7 +135,7 @@ public class Auth0AssociationHandler {
 
     void getUsers(String groupName, UserHandler handler) {
         ListUsersInGroupRequest.Builder request = ListUsersInGroupRequest.builder()
-                .userPoolId(configuration.getUserPoolID())
+                .userPoolId(configuration.getDomain())
                 .groupName(groupName);
 
         ListUsersInGroupIterable result = client.listUsersInGroupPaginator(request.build());
@@ -148,7 +157,7 @@ public class Auth0AssociationHandler {
 
     private void getGroups(String userName, GroupHandler handler) {
         AdminListGroupsForUserRequest.Builder request = AdminListGroupsForUserRequest.builder()
-                .userPoolId(configuration.getUserPoolID())
+                .userPoolId(configuration.getDomain())
                 .username(userName);
 
         AdminListGroupsForUserIterable result = client.adminListGroupsForUserPaginator(request.build());

@@ -15,6 +15,7 @@
  */
 package jp.openstandia.connector.auth0;
 
+import com.auth0.client.mgmt.ManagementAPI;
 import org.identityconnectors.common.logging.Log;
 import org.identityconnectors.common.security.GuardedString;
 import org.identityconnectors.framework.common.exceptions.ConnectorException;
@@ -28,10 +29,10 @@ import software.amazon.awssdk.services.cognitoidentityprovider.paginators.ListUs
 import java.time.Instant;
 import java.time.ZonedDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
 
 import static jp.openstandia.connector.auth0.Auth0Utils.*;
 import static org.identityconnectors.framework.common.objects.OperationalAttributes.ENABLE_NAME;
+import static org.identityconnectors.framework.common.objects.OperationalAttributes.PASSWORD_NAME;
 
 public class Auth0UserHandler {
 
@@ -39,54 +40,59 @@ public class Auth0UserHandler {
 
     private static final Log LOGGER = Log.getLog(Auth0UserHandler.class);
 
-    // The username for the user. Must be unique within the user pool.
-    // Must be a UTF-8 string between 1 and 128 characters. After the user is created, the username cannot be changed.
-    // https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_AdminCreateUser.html
+    // Email
+    private static final String ATTR_EMAIL = "email";
+    // Username e.g. "johndoe"
+    // Only valid if the connection requires a username
     private static final String ATTR_USERNAME = "username";
 
-    // Also, Unique and unchangeable within the user pool
-    private static final String ATTR_SUB = "sub";
+    // Unique and unchangeable
+    private static final String ATTR_USER_ID = "user_id";
 
     // Standard Attributes
-    // https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-attributes.html
-    private static final String ATTR_EMAIL = "email";
-    private static final String ATTR_PREFERRED_USERNAME = "preferred_username";
+    private static final String ATTR_NICKNAME = "nickname";
+    private static final String ATTR_PHONE_NUMBER = "phone_number";
+    private static final String ATTR_GIVEN_NAME = "given_name";
+    private static final String ATTR_FAMILY_NAME = "family_name";
+    // Full name e.g. "John Doe"
+    private static final String ATTR_NAME = "name";
+    // Picture URI e.g. "https://secure.gravatar.com/avatar/15626c5e0c749cb912f9d1ad48dba440?s=480&r=pg&d=https%3A%2F%2Fssl.gstatic.com%2Fs2%2Fprofiles%2Fimages%2Fsilhouette80.png"
+    private static final String ATTR_PICTURE = "picture";
+    // Whether this email address is verified (true) or unverified (false)
+    // User will receive a verification email after creation if email_verified is false or not specified
+    private static final String ATTR_EMAIL_VERIFIED = "email_verified";
+    // Whether the user will receive a verification email after creation (true) or no email (false)
+    // Overrides behavior of email_verified parameter.
+    private static final String ATTR_VERIFY_EMAIL = "verify_email";
+    private static final String ATTR_PHONE_VERIFIED = "phone_verified";
+    // Whether this user was blocked by an administrator (true) or not (false)
+    private static final String ATTR_BLOCKED = "blocked";
+    private static final String ATTR_CONNECTION = "connection";
 
     // Metadata
-    private static final String ATTR_USER_CREATE_DATE = "UserCreateDate";
-    private static final String ATTR_USER_LAST_MODIFIED_DATE = "UserLastModifiedDate";
-    private static final String ATTR_USER_STATUS = "UserStatus";
+    private static final String ATTR_CREATED_AT = "created_at";
+    private static final String ATTR_UPDATED_AT = "updated_at";
+    private static final String ATTR_MULTIFACTOR_LAST_MODIFIED = "multifactor_last_modified";
+    private static final String ATTR_LAST_IP = "last_ip";
+    private static final String ATTR_LAST_LOGIN = "last_login";
+    private static final String ATTR_LOGINS_COUNT = "logins_count";
 
     // Association
-    private static final String ATTR_GROUPS = "groups";
+    private static final String ATTR_ROLES = "roles";
+    private static final String ATTR_PERMISSION = "permissions";
 
     // Password
-    private static final String ATTR_PASSWORD = "__PASSWORD__";
-    private static final String ATTR_PASSWORD_PERMANENT = "password_permanent";
+    // Initial password for this user (mandatory only for auth0 connection strategy)
+    private static final String ATTR_PASSWORD = PASSWORD_NAME;
 
     // Enable
-    private static final String ATTR_ENABLE = "__ENABLE__";
+    private static final String ATTR_ENABLE = ENABLE_NAME;
 
     private static final Auth0Filter.SubFilter SUB_FILTER = new Auth0Filter.SubFilter();
 
-    private static final Set<String> NOT_USER_ATTRIBUTES = createNotUserAttributes();
-
-    private static Set<String> createNotUserAttributes() {
-        Set<String> attrs = new HashSet<>();
-        attrs.add(Uid.NAME);
-        attrs.add(Name.NAME);
-        attrs.add(ATTR_USER_CREATE_DATE);
-        attrs.add(ATTR_USER_LAST_MODIFIED_DATE);
-        attrs.add(ATTR_USER_STATUS);
-        attrs.add(ATTR_GROUPS);
-        attrs.add(ATTR_PASSWORD_PERMANENT);
-        attrs.addAll(OperationalAttributes.OPERATIONAL_ATTRIBUTE_NAMES);
-
-        return Collections.unmodifiableSet(attrs);
-    }
-
     private final Auth0Configuration configuration;
     private final CognitoIdentityProviderClient client;
+    private final ManagementAPI client2;
     private final Auth0AssociationHandler userGroupHandler;
     private final Map<String, AttributeInfo> schema;
 
@@ -94,12 +100,22 @@ public class Auth0UserHandler {
                             Map<String, AttributeInfo> schema) {
         this.configuration = configuration;
         this.client = client;
+        this.client2 = null;
         this.schema = schema;
         this.userGroupHandler = new Auth0AssociationHandler(configuration, client);
     }
 
-    public static ObjectClassInfo getUserSchema(UserPoolType userPoolType) {
-        LOGGER.ok("UserPoolType: {0}", userPoolType);
+    public Auth0UserHandler(Auth0Configuration configuration, ManagementAPI client,
+                            Map<String, AttributeInfo> schema) {
+        this.configuration = configuration;
+        this.client = null;
+        this.client2 = client;
+        this.schema = schema;
+        this.userGroupHandler = new Auth0AssociationHandler(configuration, client);
+    }
+
+    public static ObjectClassInfo getUserSchema(Auth0Configuration config) {
+        LOGGER.ok("User: {0}");
 
         ObjectClassInfoBuilder builder = new ObjectClassInfoBuilder();
         builder.setType(USER_OBJECT_CLASS.getObjectClassValue());
@@ -107,27 +123,22 @@ public class Auth0UserHandler {
         // sub (__UID__)
         builder.addAttributeInfo(
                 AttributeInfoBuilder.define(Uid.NAME)
-                        .setRequired(false) // Must be optional. It is not present for create operations
+                        .setRequired(false)
                         .setCreateable(false)
                         .setUpdateable(false)
-                        .setNativeName(ATTR_SUB)
+                        .setNativeName(ATTR_USER_ID)
                         .build()
         );
 
         // username (__NAME__)
-        // Caution!! It is prohibited to update this value which is Amazon Cognito limitation.
+        // CaseSensitive
         AttributeInfoBuilder usernameBuilder = AttributeInfoBuilder.define(Name.NAME)
-                .setRequired(true)
-                .setUpdateable(false)
-                .setNativeName(ATTR_USERNAME);
-        Boolean caseSensitive;
-        if (userPoolType.usernameConfiguration() != null) {
-            caseSensitive = userPoolType.usernameConfiguration().caseSensitive();
-            if (!caseSensitive) {
-                usernameBuilder.setSubtype(AttributeInfo.Subtypes.STRING_CASE_IGNORE);
-            }
+                .setRequired(true) // The API doc says it's optional, but default connection requires email
+                .setUpdateable(true);
+        if (config.getUsernameAttribute().equals(ATTR_USERNAME)) {
+            usernameBuilder.setNativeName(ATTR_USERNAME);
         } else {
-            caseSensitive = true;
+            usernameBuilder.setNativeName(ATTR_EMAIL);
         }
         builder.addAttributeInfo(usernameBuilder.build());
 
@@ -136,70 +147,66 @@ public class Auth0UserHandler {
 
         // __PASSWORD__ attribute
         builder.addAttributeInfo(OperationalAttributeInfos.PASSWORD);
-        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_PASSWORD_PERMANENT)
-                .setType(Boolean.class)
-                .setReadable(false)
-                .setReturnedByDefault(false)
-                .build());
 
         // Other attributes
-        List<AttributeInfo> attrInfoList = userPoolType.schemaAttributes().stream()
-                .filter(a -> !a.name().equals(ATTR_SUB))
-                .map(s -> {
-                    AttributeInfoBuilder attrInfo = AttributeInfoBuilder.define(s.name())
-                            .setRequired(s.required())
-                            .setUpdateable(s.mutable());
-
-                    // https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_SchemaAttributeType.html#CognitoUserPools-Type-SchemaAttributeType-AttributeDataType
-                    switch (s.attributeDataType()) {
-                        case STRING:
-                            attrInfo.setType(String.class);
-                            break;
-                        case NUMBER:
-                            attrInfo.setType(Integer.class);
-                            break;
-                        case DATE_TIME:
-                            attrInfo.setType(ZonedDateTime.class);
-                            break;
-                        case BOOLEAN:
-                            attrInfo.setType(Boolean.class);
-                            break;
-                        default:
-                            attrInfo.setType(String.class);
-                    }
-
-                    if (s.name().equals(ATTR_EMAIL) || s.name().equals(ATTR_PREFERRED_USERNAME)) {
-                        if (!caseSensitive) {
-                            attrInfo.setSubtype(AttributeInfo.Subtypes.STRING_CASE_IGNORE);
-                        }
-                    }
-                    return attrInfo.build();
-                })
-                .collect(Collectors.toList());
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_NICKNAME).build());
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_PHONE_NUMBER).build());
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_GIVEN_NAME).build());
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_FAMILY_NAME).build());
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_NAME).build());
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_PICTURE).build());
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_EMAIL_VERIFIED)
+                .setType(Boolean.class)
+                .build());
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_VERIFY_EMAIL)
+                .setType(Boolean.class)
+                .build());
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_PHONE_VERIFIED)
+                .setType(Boolean.class)
+                .build());
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_BLOCKED)
+                .setType(Boolean.class)
+                .build());
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_CONNECTION)
+                .setType(String.class)
+                .build());
 
         // Metadata
-        attrInfoList.add(AttributeInfoBuilder.define(ATTR_USER_CREATE_DATE)
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_CREATED_AT)
                 .setType(ZonedDateTime.class)
                 .setCreateable(false)
                 .setUpdateable(false)
                 .build());
-        attrInfoList.add(AttributeInfoBuilder.define(ATTR_USER_LAST_MODIFIED_DATE)
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_UPDATED_AT)
                 .setType(ZonedDateTime.class)
                 .setCreateable(false)
                 .setUpdateable(false)
                 .build());
-        attrInfoList.add(AttributeInfoBuilder.define(ATTR_USER_STATUS)
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_MULTIFACTOR_LAST_MODIFIED)
+                .setType(ZonedDateTime.class)
+                .setCreateable(false)
+                .setUpdateable(false)
+                .build());
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_LAST_LOGIN)
+                .setType(ZonedDateTime.class)
+                .setCreateable(false)
+                .setUpdateable(false)
+                .build());
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_LAST_IP)
+                .setCreateable(false)
+                .setUpdateable(false)
+                .build());
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_LOGINS_COUNT)
+                .setType(Long.class)
                 .setCreateable(false)
                 .setUpdateable(false)
                 .build());
 
         // Association
-        attrInfoList.add(AttributeInfoBuilder.define(ATTR_GROUPS)
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_ROLES)
                 .setMultiValued(true)
                 .setReturnedByDefault(false)
                 .build());
-
-        builder.addAllAttributeInfo(attrInfoList);
 
         ObjectClassInfo userSchemaInfo = builder.build();
 
@@ -232,10 +239,7 @@ public class Auth0UserHandler {
             } else if (attr.getName().equals(OperationalAttributes.PASSWORD_NAME)) {
                 newUser.applyNewPassword(attr);
 
-            } else if (attr.getName().equals(ATTR_PASSWORD_PERMANENT)) {
-                newUser.applyPasswordPermanent(attr);
-
-            } else if (attr.getName().equals(ATTR_GROUPS)) {
+            } else if (attr.getName().equals(ATTR_ROLES)) {
                 newUser.applyGroups(attr);
 
             } else {
@@ -253,7 +257,7 @@ public class Auth0UserHandler {
         }
 
         AdminCreateUserRequest.Builder requestBuilder = AdminCreateUserRequest.builder()
-                .userPoolId(configuration.getUserPoolID())
+                .userPoolId(configuration.getDomain())
                 .username(newUser.username)
                 .userAttributes(newUser.userAttributes);
 
@@ -269,7 +273,7 @@ public class Auth0UserHandler {
 
         UserType user = result.user();
         Uid newUid = new Uid(user.attributes().stream()
-                .filter(a -> a.name().equals(ATTR_SUB))
+                .filter(a -> a.name().equals(ATTR_USER_ID))
                 .findFirst()
                 .get()
                 .value(),
@@ -296,7 +300,7 @@ public class Auth0UserHandler {
             String clearPassword = String.valueOf(a);
 
             AdminSetUserPasswordRequest request = AdminSetUserPasswordRequest.builder()
-                    .userPoolId(configuration.getUserPoolID())
+                    .userPoolId(configuration.getDomain())
                     .username(username)
                     .permanent(permanent)
                     .password(clearPassword)
@@ -339,10 +343,7 @@ public class Auth0UserHandler {
             } else if (delta.getName().equals(OperationalAttributes.PASSWORD_NAME)) {
                 modifyUser.applyNewPassword(delta);
 
-            } else if (delta.getName().equals(ATTR_PASSWORD_PERMANENT)) {
-                modifyUser.applyPasswordPermanent(delta);
-
-            } else if (delta.getName().equals(ATTR_GROUPS)) {
+            } else if (delta.getName().equals(ATTR_ROLES)) {
                 modifyUser.applyGroups(delta);
 
             } else if (schema.containsKey(delta.getName())) {
@@ -355,7 +356,7 @@ public class Auth0UserHandler {
 
         if (!modifyUser.userAttributes.isEmpty()) {
             AdminUpdateUserAttributesRequest request = AdminUpdateUserAttributesRequest.builder()
-                    .userPoolId(configuration.getUserPoolID())
+                    .userPoolId(configuration.getDomain())
                     .username(name.getNameValue())
                     .userAttributes(modifyUser.userAttributes)
                     .build();
@@ -456,7 +457,7 @@ public class Auth0UserHandler {
 
     private void enableUser(Uid uid, Name name) {
         AdminEnableUserRequest.Builder request = AdminEnableUserRequest.builder()
-                .userPoolId(configuration.getUserPoolID())
+                .userPoolId(configuration.getDomain())
                 .username(name.getNameValue());
         try {
             AdminEnableUserResponse result = client.adminEnableUser(request.build());
@@ -470,7 +471,7 @@ public class Auth0UserHandler {
 
     private void disableUser(Uid uid, Name name) {
         AdminDisableUserRequest.Builder request = AdminDisableUserRequest.builder()
-                .userPoolId(configuration.getUserPoolID())
+                .userPoolId(configuration.getDomain())
                 .username(name.getNameValue());
         try {
             AdminDisableUserResponse result = client.adminDisableUser(request.build());
@@ -498,7 +499,7 @@ public class Auth0UserHandler {
 
         try {
             AdminDeleteUserResponse result = client.adminDeleteUser(AdminDeleteUserRequest.builder()
-                    .userPoolId(configuration.getUserPoolID())
+                    .userPoolId(configuration.getDomain())
                     .username(name.getNameValue()).build());
 
             checkCognitoResult(result, "AdminDeleteUser");
@@ -526,7 +527,7 @@ public class Auth0UserHandler {
 
     private UserType findUserByUid(String uid) {
         ListUsersResponse result = client.listUsers(ListUsersRequest.builder()
-                .userPoolId(configuration.getUserPoolID())
+                .userPoolId(configuration.getDomain())
                 .filter(SUB_FILTER.toFilterString(uid)).build());
 
         checkCognitoResult(result, "ListUsers");
@@ -546,7 +547,7 @@ public class Auth0UserHandler {
 
     private AdminGetUserResponse findUserByName(String username) {
         AdminGetUserResponse result = client.adminGetUser(AdminGetUserRequest.builder()
-                .userPoolId(configuration.getUserPoolID())
+                .userPoolId(configuration.getDomain())
                 .username(username).build());
 
         checkCognitoResult(result, "AdminGetUser");
@@ -565,7 +566,7 @@ public class Auth0UserHandler {
         }
 
         ListUsersRequest.Builder request = ListUsersRequest.builder();
-        request.userPoolId(configuration.getUserPoolID());
+        request.userPoolId(configuration.getDomain());
         if (filter != null) {
             request.filter(filter.toFilterString(schema));
         }
@@ -616,19 +617,19 @@ public class Auth0UserHandler {
         if (shouldReturn(attributesToGet, ENABLE_NAME)) {
             builder.addAttribute(AttributeBuilder.buildEnabled(enabled));
         }
-        if (shouldReturn(attributesToGet, ATTR_USER_CREATE_DATE)) {
-            builder.addAttribute(ATTR_USER_CREATE_DATE, Auth0Utils.toZoneDateTime(userCreateDate));
+        if (shouldReturn(attributesToGet, ATTR_CREATED_AT)) {
+            builder.addAttribute(ATTR_CREATED_AT, Auth0Utils.toZoneDateTime(userCreateDate));
         }
-        if (shouldReturn(attributesToGet, ATTR_USER_LAST_MODIFIED_DATE)) {
-            builder.addAttribute(ATTR_USER_LAST_MODIFIED_DATE, Auth0Utils.toZoneDateTime(userLastModifiedDate));
+        if (shouldReturn(attributesToGet, ATTR_UPDATED_AT)) {
+            builder.addAttribute(ATTR_UPDATED_AT, Auth0Utils.toZoneDateTime(userLastModifiedDate));
         }
-        if (shouldReturn(attributesToGet, ATTR_USER_STATUS)) {
-            builder.addAttribute(ATTR_USER_STATUS, status);
+        if (shouldReturn(attributesToGet, ATTR_MULTIFACTOR_LAST_MODIFIED)) {
+            builder.addAttribute(ATTR_MULTIFACTOR_LAST_MODIFIED, status);
         }
 
         for (AttributeType a : attributes) {
             // Always returns "sub"
-            if (a.name().equals(ATTR_SUB)) {
+            if (a.name().equals(ATTR_USER_ID)) {
                 builder.setUid(a.value());
             } else {
                 AttributeInfo attributeInfo = schema.get(a.name());
@@ -643,7 +644,7 @@ public class Auth0UserHandler {
             LOGGER.ok("Suppress fetching groups because return partial attribute values is requested");
 
             AttributeBuilder ab = new AttributeBuilder();
-            ab.setName(ATTR_GROUPS).setAttributeValueCompleteness(AttributeValueCompleteness.INCOMPLETE);
+            ab.setName(ATTR_ROLES).setAttributeValueCompleteness(AttributeValueCompleteness.INCOMPLETE);
             ab.addValue(Collections.EMPTY_LIST);
             builder.addAttribute(ab.build());
         } else {
@@ -651,12 +652,12 @@ public class Auth0UserHandler {
                 // Suppress fetching groups default
                 LOGGER.ok("Suppress fetching groups because returned by default is true");
 
-            } else if (shouldReturn(attributesToGet, ATTR_GROUPS)) {
+            } else if (shouldReturn(attributesToGet, ATTR_ROLES)) {
                 // Fetch groups
                 LOGGER.ok("Fetching groups because attributes to get is requested");
 
                 List<String> groups = userGroupHandler.getGroupsForUser(username);
-                builder.addAttribute(ATTR_GROUPS, groups);
+                builder.addAttribute(ATTR_ROLES, groups);
             }
         }
 

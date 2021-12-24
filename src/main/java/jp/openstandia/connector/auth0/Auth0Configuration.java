@@ -15,132 +15,96 @@
  */
 package jp.openstandia.connector.auth0;
 
-import org.identityconnectors.common.StringUtil;
 import org.identityconnectors.common.security.GuardedString;
-import org.identityconnectors.framework.common.exceptions.ConfigurationException;
 import org.identityconnectors.framework.spi.AbstractConfiguration;
 import org.identityconnectors.framework.spi.ConfigurationProperty;
-import software.amazon.awssdk.regions.Region;
 
 public class Auth0Configuration extends AbstractConfiguration {
 
-    private String userPoolID;
-    private GuardedString awsAccessKeyID;
-    private GuardedString awsSecretAccessKey;
-    private String region;
-    private String assumeRoleArn;
-    private String assumeRoleExternalId;
-    private int assumeRoleDurationSeconds = 3600;
+    private String domain;
+    private GuardedString apiToken;
+    private Integer connectionTimeoutInSeconds = 10;
+    private Integer readTimeoutInSeconds = 10;
+    private Integer maxRetries = 3;
     private String httpProxyHost;
     private int httpProxyPort;
     private String httpProxyUser;
     private GuardedString httpProxyPassword;
     private boolean suppressInvitationMessageEnabled = true;
+    private String usernameAttribute = "email";
 
     @ConfigurationProperty(
             order = 1,
-            displayMessageKey = "User Pool ID",
-            helpMessageKey = "User Pool ID which is connected from this connector.",
+            displayMessageKey = "Auth0 Domain",
+            helpMessageKey = "Auth0 domain which is connected from this connector.",
             required = true,
             confidential = false)
-    public String getUserPoolID() {
-        return userPoolID;
+    public String getDomain() {
+        return domain;
     }
 
-    public void setUserPoolID(String userPoolID) {
-        this.userPoolID = userPoolID;
+    public void setDomain(String domain) {
+        this.domain = domain;
     }
 
     @ConfigurationProperty(
             order = 2,
-            displayMessageKey = "AWS Access Key ID",
-            helpMessageKey = "Set your AWS Access Key ID to connect Amazon Cognito. " +
-                    "This option will be used when you want to deploy this connector in on-premises environment " +
-                    "or to use testing purpose.",
+            displayMessageKey = "Auth0 API Token",
+            helpMessageKey = "Set your Auth0 API token to connect Auth0.",
             required = false,
             confidential = true)
-    public GuardedString getAWSAccessKeyID() {
-        return awsAccessKeyID;
+    public GuardedString getAPIToken() {
+        return apiToken;
     }
 
-    public void setAWSAccessKeyID(GuardedString awsAccessKeyID) {
-        this.awsAccessKeyID = awsAccessKeyID;
+    public void setAPIToken(GuardedString apiToken) {
+        this.apiToken = apiToken;
     }
 
     @ConfigurationProperty(
             order = 3,
-            displayMessageKey = "AWS Secret Access Key",
-            helpMessageKey = "Set your AWS Secret Access Key to connect Amazon Cognito. " +
-                    "This option will be used when you want to deploy this connector in on-premises environment " +
-                    "or to use testing purpose.",
+            displayMessageKey = "Connection Timeout (in seconds)",
+            helpMessageKey = "Connection timeout when connecting to Auth0. (Default: 10)",
             required = false,
-            confidential = true)
-    public GuardedString getAWSSecretAccessKey() {
-        return awsSecretAccessKey;
+            confidential = false)
+    public Integer getConnectionTimeoutInSeconds() {
+        return connectionTimeoutInSeconds;
     }
 
-    public void setAWSSecretAccessKey(GuardedString awsSecretAccessKey) {
-        this.awsSecretAccessKey = awsSecretAccessKey;
+    public void setConnectionTimeoutInSeconds(Integer connectionTimeoutInSeconds) {
+        this.connectionTimeoutInSeconds = connectionTimeoutInSeconds;
     }
 
     @ConfigurationProperty(
             order = 4,
-            displayMessageKey = "Region",
-            helpMessageKey = "Region",
-            required = true,
+            displayMessageKey = "Read Timeout (in seconds)",
+            helpMessageKey = "Read timeout when fetching data from Auth0. (Default: 10)",
+            required = false,
             confidential = false)
-    public String getRegion() {
-        return region;
+    public Integer getReadTimeoutInSeconds() {
+        return readTimeoutInSeconds;
     }
 
-    public void setRegion(String region) {
-        this.region = region;
+    public void setReadTimeoutInSeconds(Integer readTimeoutInSeconds) {
+        this.readTimeoutInSeconds = readTimeoutInSeconds;
     }
 
     @ConfigurationProperty(
             order = 5,
-            displayMessageKey = "Assume Role Arn",
-            helpMessageKey = "Assume Role Arn",
+            displayMessageKey = "Max Retries",
+            helpMessageKey = "Sets the maximum number of consecutive retries for Auth0 Management API requests that fail due to rate-limits being reached. (Default: 3)",
             required = false,
             confidential = false)
-    public String getAssumeRoleArn() {
-        return assumeRoleArn;
+    public Integer getMaxRetries() {
+        return maxRetries;
     }
 
-    public void setAssumeRoleArn(String assumeRoleArn) {
-        this.assumeRoleArn = assumeRoleArn;
+    public void setMaxRetries(Integer maxRetries) {
+        this.maxRetries = maxRetries;
     }
 
     @ConfigurationProperty(
             order = 6,
-            displayMessageKey = "Assume Role External Id",
-            helpMessageKey = "Assume Role External Id",
-            required = false,
-            confidential = false)
-    public String getAssumeRoleExternalId() {
-        return assumeRoleExternalId;
-    }
-
-    public void setAssumeRoleExternalId(String assumeRoleExternalId) {
-        this.assumeRoleExternalId = assumeRoleExternalId;
-    }
-
-    @ConfigurationProperty(
-            order = 7,
-            displayMessageKey = "Assume Role Duration Seconds",
-            helpMessageKey = "Assume Role Duration Seconds (Default: 3600 seconds)",
-            required = false,
-            confidential = false)
-    public int getAssumeRoleDurationSeconds() {
-        return assumeRoleDurationSeconds;
-    }
-
-    public void setAssumeRoleDurationSeconds(int assumeRoleDurationSeconds) {
-        this.assumeRoleDurationSeconds = assumeRoleDurationSeconds;
-    }
-
-    @ConfigurationProperty(
-            order = 8,
             displayMessageKey = "HTTP Proxy Host",
             helpMessageKey = "Hostname for the HTTP Proxy",
             required = false,
@@ -154,7 +118,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 9,
+            order = 7,
             displayMessageKey = "HTTP Proxy Port",
             helpMessageKey = "Port for the HTTP Proxy",
             required = false,
@@ -168,7 +132,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 10,
+            order = 8,
             displayMessageKey = "HTTP Proxy User",
             helpMessageKey = "Username for the HTTP Proxy Authentication",
             required = false,
@@ -182,7 +146,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 11,
+            order = 9,
             displayMessageKey = "HTTP Proxy Password",
             helpMessageKey = "Password for the HTTP Proxy Authentication",
             required = false,
@@ -209,14 +173,21 @@ public class Auth0Configuration extends AbstractConfiguration {
         this.suppressInvitationMessageEnabled = suppressInvitationMessageEnabled;
     }
 
+    @ConfigurationProperty(
+            order = 10,
+            displayMessageKey = "Username Attribute",
+            helpMessageKey = "Set attribute name for the username. Default: email",
+            required = false,
+            confidential = false)
+    public String getUsernameAttribute() {
+        return usernameAttribute;
+    }
+
+    public void setUsernameAttribute(String usernameAttribute) {
+        this.usernameAttribute = usernameAttribute;
+    }
+
     @Override
     public void validate() {
-        if (StringUtil.isNotEmpty(getRegion())) {
-            try {
-                Region.of(getRegion());
-            } catch (IllegalArgumentException e) {
-                throw new ConfigurationException("Invalid AWS Region name: " + getRegion());
-            }
-        }
     }
 }

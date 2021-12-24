@@ -15,6 +15,15 @@
  */
 package jp.openstandia.connector.auth0;
 
+import com.auth0.client.HttpOptions;
+import com.auth0.client.ProxyOptions;
+import com.auth0.client.mgmt.ManagementAPI;
+import com.auth0.client.mgmt.filter.UserFilter;
+import com.auth0.exception.APIException;
+import com.auth0.exception.Auth0Exception;
+import com.auth0.exception.RateLimitException;
+import com.auth0.json.mgmt.users.UsersPage;
+import com.auth0.net.Request;
 import org.identityconnectors.common.StringUtil;
 import org.identityconnectors.common.logging.Log;
 import org.identityconnectors.framework.common.exceptions.*;
@@ -25,18 +34,12 @@ import org.identityconnectors.framework.spi.ConnectorClass;
 import org.identityconnectors.framework.spi.InstanceNameAware;
 import org.identityconnectors.framework.spi.PoolableConnector;
 import org.identityconnectors.framework.spi.operations.*;
-import software.amazon.awssdk.auth.credentials.*;
-import software.amazon.awssdk.http.apache.ApacheHttpClient;
-import software.amazon.awssdk.http.apache.ProxyConfiguration;
-import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
-import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClientBuilder;
-import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
-import software.amazon.awssdk.services.sts.StsClient;
-import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
-import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.ResourceNotFoundException;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.UserNotFoundException;
 
-import java.net.URI;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -52,6 +55,7 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
 
     protected Auth0Configuration configuration;
     protected CognitoIdentityProviderClient client;
+    protected ManagementAPI client2;
 
     private Map<String, AttributeInfo> userSchemaMap;
     private String instanceName;
@@ -68,105 +72,69 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
         try {
             authenticateResource();
         } catch (RuntimeException e) {
-            throw processRuntimeException(e);
+            throw processException(e);
         }
 
         LOG.ok("Connector {0} successfully initialized", getClass().getName());
     }
 
     protected void authenticateResource() {
-        // Setup http proxy aware httpClient
-        ApacheHttpClient.Builder httpClientBuilder = ApacheHttpClient.builder();
+        HttpOptions httpOptions = new HttpOptions();
 
-        if (StringUtil.isNotEmpty(configuration.getHttpProxyHost())) {
-            ProxyConfiguration.Builder proxyBuilder = ProxyConfiguration.builder()
-                    .endpoint(URI.create(String.format("http://%s:%d",
-                            configuration.getHttpProxyHost(), configuration.getHttpProxyPort())));
-            if (StringUtil.isNotEmpty(configuration.getHttpProxyUser()) && configuration.getHttpProxyPassword() != null) {
-                configuration.getHttpProxyPassword().access(c -> {
-                    proxyBuilder.username(configuration.getHttpProxyUser())
-                            .password(String.valueOf(c));
-                });
-            }
-            httpClientBuilder.proxyConfiguration(proxyBuilder.build());
+        if (configuration.getConnectionTimeoutInSeconds() != null) {
+            httpOptions.setConnectTimeout(configuration.getConnectionTimeoutInSeconds());
+        }
+        if (configuration.getReadTimeoutInSeconds() != null) {
+            httpOptions.setReadTimeout(configuration.getReadTimeoutInSeconds());
+        }
+        if (configuration.getMaxRetries() != null) {
+            httpOptions.setManagementAPIMaxRetries(configuration.getMaxRetries());
         }
 
-        // Setup AWS credential using IAM Role or specified access key
-        final AwsCredentialsProvider[] cp = {DefaultCredentialsProvider.create()};
-        if (configuration.getAWSAccessKeyID() != null && configuration.getAWSSecretAccessKey() != null) {
-            configuration.getAWSAccessKeyID().access(c -> {
-                configuration.getAWSSecretAccessKey().access(s -> {
-                    AwsCredentials cred = AwsBasicCredentials.create(String.valueOf(c), String.valueOf(s));
-                    cp[0] = StaticCredentialsProvider.create(cred);
+        // HTTP Proxy
+        if (StringUtil.isNotEmpty(configuration.getHttpProxyHost())) {
+            Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress(configuration.getHttpProxyHost(), configuration.getHttpProxyPort()));
+            ProxyOptions proxyOptions = new ProxyOptions(proxy);
+            httpOptions.setProxyOptions(proxyOptions);
+        }
+
+        // Setup client
+        if (configuration.getAPIToken() != null) {
+            configuration.getAPIToken().access(c -> {
+                configuration.getAPIToken().access(s -> {
+                    client2 = new ManagementAPI(configuration.getDomain(), String.valueOf(s), httpOptions);
                 });
             });
         }
 
-        // If assumeRoleArn is configured, override AWS credential by getting temporary credential.
-        if (StringUtil.isNotEmpty(configuration.getAssumeRoleArn())) {
-            StsClient stsClient = StsClient.builder()
-                    .credentialsProvider(cp[0])
-                    .httpClientBuilder(httpClientBuilder).build();
-
-            AssumeRoleRequest.Builder builder = AssumeRoleRequest.builder()
-                    .roleArn(configuration.getAssumeRoleArn());
-            if (StringUtil.isNotEmpty(configuration.getAssumeRoleExternalId())) {
-                builder.externalId(configuration.getAssumeRoleExternalId());
-            }
-            AssumeRoleRequest req = builder
-                    .durationSeconds(configuration.getAssumeRoleDurationSeconds())
-                    .roleSessionName("identity-connector")
-                    .build();
-
-            StsAssumeRoleCredentialsProvider provider = StsAssumeRoleCredentialsProvider.builder()
-                    .stsClient(stsClient)
-                    .refreshRequest(req)
-                    .build();
-
-            cp[0] = provider;
-        }
-
-        // Finally, setup cognito client using http client and AWS credential
-        CognitoIdentityProviderClientBuilder builder = CognitoIdentityProviderClient.builder().credentialsProvider(cp[0]);
-
-        String region = configuration.getRegion();
-        if (StringUtil.isNotEmpty(region)) {
-            try {
-                Region r = Region.of(region);
-                builder.region(r);
-            } catch (IllegalArgumentException e) {
-                LOG.error(e, "Invalid AWS region: {0}", region);
-                throw new ConfigurationException("Invalid AWS region: " + region);
-            }
-        }
-
-        client = builder.httpClientBuilder(httpClientBuilder).build();
-
-        // Verify we can access the user pool
-        describeUserPool();
+        // Verify we can access the API
+        checkClient();
     }
 
-    private UserPoolType describeUserPool() {
-        DescribeUserPoolResponse result = client.describeUserPool(DescribeUserPoolRequest.builder()
-                .userPoolId(configuration.getUserPoolID()).build());
-        int status = result.sdkHttpResponse().statusCode();
-        if (status != 200) {
-            throw new ConnectorIOException("Failed to describe user pool: " + configuration.getUserPoolID());
+    private void checkClient() {
+        if (client2 == null) {
+            throw new ConfigurationException("Not initialized the API client");
         }
-        return result.userPool();
+        UserFilter filter = new UserFilter()
+                .withPage(0, 1);
+        Request<UsersPage> request = client2.users().list(filter);
+
+        try {
+            UsersPage response = request.execute();
+        } catch (Auth0Exception e) {
+            throw processException(e);
+        }
     }
 
     @Override
     public Schema schema() {
         try {
-            UserPoolType userPoolType = describeUserPool();
-
             SchemaBuilder schemaBuilder = new SchemaBuilder(Auth0Connector.class);
 
-            ObjectClassInfo userSchemaInfo = Auth0UserHandler.getUserSchema(userPoolType);
+            ObjectClassInfo userSchemaInfo = Auth0UserHandler.getUserSchema(configuration);
             schemaBuilder.defineObjectClass(userSchemaInfo);
 
-            ObjectClassInfo groupSchemaInfo = Auth0RoleHandler.getGroupSchema(userPoolType);
+            ObjectClassInfo groupSchemaInfo = Auth0RoleHandler.getGroupSchema(configuration);
             schemaBuilder.defineObjectClass(groupSchemaInfo);
 
             schemaBuilder.defineOperationOption(OperationOptionInfoBuilder.buildAttributesToGet(), SearchOp.class);
@@ -175,13 +143,12 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
             userSchemaMap = new HashMap<>();
             userSchemaInfo.getAttributeInfo().stream()
                     .forEach(a -> userSchemaMap.put(a.getName(), a));
-            userSchemaMap.put(Uid.NAME, AttributeInfoBuilder.define("username").build());
             userSchemaMap = Collections.unmodifiableMap(userSchemaMap);
 
             return schemaBuilder.build();
 
         } catch (RuntimeException e) {
-            throw processRuntimeException(e);
+            throw processException(e);
         }
     }
 
@@ -206,18 +173,18 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
 
         try {
             if (objectClass.equals(USER_OBJECT_CLASS)) {
-                Auth0UserHandler usersHandler = new Auth0UserHandler(configuration, client, getUserSchemaMap());
+                Auth0UserHandler usersHandler = new Auth0UserHandler(configuration, client2, getUserSchemaMap());
                 return usersHandler.createUser(createAttributes);
 
             } else if (objectClass.equals(GROUP_OBJECT_CLASS)) {
                 Auth0RoleHandler groupsHandler = new Auth0RoleHandler(configuration, client);
-                return groupsHandler.createGroup(createAttributes);
+                return groupsHandler.createRole(createAttributes);
 
             } else {
                 throw new InvalidAttributeValueException("Unsupported object class " + objectClass);
             }
         } catch (RuntimeException e) {
-            throw processRuntimeException(e);
+            throw processException(e);
         }
     }
 
@@ -236,7 +203,7 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
                 throw new InvalidAttributeValueException("Unsupported object class " + objectClass);
             }
         } catch (RuntimeException e) {
-            throw processRuntimeException(e);
+            throw processException(e);
         }
     }
 
@@ -255,7 +222,7 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
                 throw new InvalidAttributeValueException("Unsupported object class " + objectClass);
             }
         } catch (RuntimeException e) {
-            throw processRuntimeException(e);
+            throw processException(e);
         }
     }
 
@@ -274,7 +241,7 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
                 // Don't throw UnknownUidException
                 return;
             } catch (RuntimeException e) {
-                throw processRuntimeException(e);
+                throw processException(e);
             }
 
         } else if (objectClass.equals(GROUP_OBJECT_CLASS)) {
@@ -285,7 +252,7 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
                 // Don't throw UnknownUidException
                 return;
             } catch (RuntimeException e) {
-                throw processRuntimeException(e);
+                throw processException(e);
             }
 
         } else {
@@ -299,7 +266,7 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
             dispose();
             authenticateResource();
         } catch (RuntimeException e) {
-            throw processRuntimeException(e);
+            throw processException(e);
         }
     }
 
@@ -307,6 +274,7 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
     public void dispose() {
         client.close();
         this.client = null;
+        this.client2 = null;
     }
 
     @Override
@@ -319,41 +287,54 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
         this.instanceName = instanceName;
     }
 
-    protected ConnectorException processRuntimeException(RuntimeException e) {
-        if (e instanceof ConnectorException) {
-            return (ConnectorException) e;
+    protected ConnectorException processException(Exception e) {
+        if (e instanceof RuntimeException) {
+            return processException((RuntimeException) e);
         }
-        if (e instanceof CognitoIdentityProviderException) {
-            return processCognitoIdentityProviderException((CognitoIdentityProviderException) e);
+        if (e instanceof Auth0Exception) {
+            return processException((Auth0Exception) e);
         }
         return new ConnectorException(e);
     }
 
-    private ConnectorException processCognitoIdentityProviderException(CognitoIdentityProviderException e) {
-        if (e instanceof InvalidParameterException) {
-            return new InvalidAttributeValueException(e);
+    protected ConnectorException processException(RuntimeException e) {
+        if (e instanceof ConnectorException) {
+            return (ConnectorException) e;
         }
-        if (e instanceof UserNotFoundException) {
-            return new UnknownUidException(e);
-        }
-        if (e instanceof ResourceNotFoundException) {
-            return new UnknownUidException(e);
-        }
-        if (e instanceof UsernameExistsException) {
-            return new AlreadyExistsException(e);
-        }
-        if (e instanceof GroupExistsException) {
-            return new AlreadyExistsException(e);
-        }
-        if (e instanceof LimitExceededException) {
+        return new ConnectorException(e);
+    }
+
+    private ConnectorException processException(Auth0Exception e) {
+        if (e instanceof RateLimitException) {
             return RetryableException.wrap(e.getMessage(), e);
         }
-        if (e instanceof TooManyRequestsException) {
-            return RetryableException.wrap(e.getMessage(), e);
+        if (e instanceof APIException) {
+            APIException ae = (APIException) e;
+
+            int statusCode = ae.getStatusCode();
+
+            switch (statusCode) {
+                case 400:
+                    return new InvalidAttributeValueException(e);
+                case 401:
+                case 403:
+                    return new ConnectionFailedException(e);
+                case 404:
+                    return new UnknownUidException(e);
+                case 409:
+                    return new AlreadyExistsException(e);
+                case 429:
+                    return RetryableException.wrap(e.getMessage(), e);
+            }
+
+            if (ae.isAccessDenied()) {
+                throw new ConnectorSecurityException(ae);
+            }
+            if (ae.getError().equals("invalid_query_string")) {
+                return new InvalidAttributeValueException(e);
+            }
         }
-        if (e instanceof InternalErrorException) {
-            return RetryableException.wrap(e.getMessage(), e);
-        }
+
         throw new ConnectorIOException(e);
     }
 }
