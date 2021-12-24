@@ -16,19 +16,27 @@
 package jp.openstandia.connector.auth0;
 
 import com.auth0.client.mgmt.ManagementAPI;
+import com.auth0.client.mgmt.filter.FieldsFilter;
+import com.auth0.client.mgmt.filter.UserFilter;
+import com.auth0.exception.Auth0Exception;
+import com.auth0.json.mgmt.users.User;
+import com.auth0.json.mgmt.users.UsersPage;
+import com.auth0.net.Request;
 import org.identityconnectors.common.logging.Log;
-import org.identityconnectors.common.security.GuardedString;
 import org.identityconnectors.framework.common.exceptions.ConnectorException;
 import org.identityconnectors.framework.common.exceptions.InvalidAttributeValueException;
-import org.identityconnectors.framework.common.exceptions.UnknownUidException;
 import org.identityconnectors.framework.common.objects.*;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
-import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
-import software.amazon.awssdk.services.cognitoidentityprovider.paginators.ListUsersIterable;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.ListUsersRequest;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.ListUsersResponse;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.UserType;
 
-import java.time.Instant;
 import java.time.ZonedDateTime;
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static jp.openstandia.connector.auth0.Auth0Utils.*;
 import static org.identityconnectors.framework.common.objects.OperationalAttributes.ENABLE_NAME;
@@ -42,9 +50,6 @@ public class Auth0UserHandler {
 
     // Email
     private static final String ATTR_EMAIL = "email";
-    // Username e.g. "johndoe"
-    // Only valid if the connection requires a username
-    private static final String ATTR_USERNAME = "username";
 
     // Unique and unchangeable
     private static final String ATTR_USER_ID = "user_id";
@@ -58,6 +63,9 @@ public class Auth0UserHandler {
     private static final String ATTR_NAME = "name";
     // Picture URI e.g. "https://secure.gravatar.com/avatar/15626c5e0c749cb912f9d1ad48dba440?s=480&r=pg&d=https%3A%2F%2Fssl.gstatic.com%2Fs2%2Fprofiles%2Fimages%2Fsilhouette80.png"
     private static final String ATTR_PICTURE = "picture";
+    // Username e.g. "johndoe"
+    // Only valid if the connection requires a username
+    private static final String ATTR_USERNAME = "username";
     // Whether this email address is verified (true) or unverified (false)
     // User will receive a verification email after creation if email_verified is false or not specified
     private static final String ATTR_EMAIL_VERIFIED = "email_verified";
@@ -93,25 +101,18 @@ public class Auth0UserHandler {
     private final Auth0Configuration configuration;
     private final CognitoIdentityProviderClient client;
     private final ManagementAPI client2;
-    private final Auth0AssociationHandler userGroupHandler;
+    private final Auth0AssociationHandler userRoleHandler;
     private final Map<String, AttributeInfo> schema;
+    private final Auth0Connector connector;
 
-    public Auth0UserHandler(Auth0Configuration configuration, CognitoIdentityProviderClient client,
+    public Auth0UserHandler(Auth0Connector connector, Auth0Configuration configuration, ManagementAPI client,
                             Map<String, AttributeInfo> schema) {
-        this.configuration = configuration;
-        this.client = client;
-        this.client2 = null;
-        this.schema = schema;
-        this.userGroupHandler = new Auth0AssociationHandler(configuration, client);
-    }
-
-    public Auth0UserHandler(Auth0Configuration configuration, ManagementAPI client,
-                            Map<String, AttributeInfo> schema) {
+        this.connector = connector;
         this.configuration = configuration;
         this.client = null;
         this.client2 = client;
         this.schema = schema;
-        this.userGroupHandler = new Auth0AssociationHandler(configuration, client);
+        this.userRoleHandler = new Auth0AssociationHandler(configuration, client);
     }
 
     public static ObjectClassInfo getUserSchema(Auth0Configuration config) {
@@ -135,10 +136,13 @@ public class Auth0UserHandler {
         AttributeInfoBuilder usernameBuilder = AttributeInfoBuilder.define(Name.NAME)
                 .setRequired(true) // The API doc says it's optional, but default connection requires email
                 .setUpdateable(true);
-        if (config.getUsernameAttribute().equals(ATTR_USERNAME)) {
-            usernameBuilder.setNativeName(ATTR_USERNAME);
+        // SMS for Passwordless mode
+        if (isNameAttribute(config, ATTR_PHONE_NUMBER)) {
+            usernameBuilder.setNativeName(ATTR_PHONE_NUMBER);
+            builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_EMAIL).build());
         } else {
             usernameBuilder.setNativeName(ATTR_EMAIL);
+            builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_PHONE_NUMBER).build());
         }
         builder.addAttributeInfo(usernameBuilder.build());
 
@@ -150,11 +154,11 @@ public class Auth0UserHandler {
 
         // Other attributes
         builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_NICKNAME).build());
-        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_PHONE_NUMBER).build());
         builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_GIVEN_NAME).build());
         builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_FAMILY_NAME).build());
         builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_NAME).build());
         builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_PICTURE).build());
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_USERNAME).build());
         builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_EMAIL_VERIFIED)
                 .setType(Boolean.class)
                 .build());
@@ -168,7 +172,7 @@ public class Auth0UserHandler {
                 .setType(Boolean.class)
                 .build());
         builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_CONNECTION)
-                .setType(String.class)
+                .setMultiValued(true)
                 .build());
 
         // Metadata
@@ -215,314 +219,132 @@ public class Auth0UserHandler {
         return userSchemaInfo;
     }
 
+    private static boolean isNameAttribute(Auth0Configuration configuration, String attrName) {
+        return configuration.getUsernameAttribute().equals(attrName);
+    }
+
     /**
-     * The spec for AdminCreateUser:
-     * https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_AdminCreateUser.html
+     * The spec:
+     * https://auth0.com/docs/api/management/v2/#!/Users/post_users
      *
      * @param attributes
      * @return
      */
-    public Uid createUser(Set<Attribute> attributes) {
+    public Uid createUser(Set<Attribute> attributes) throws Auth0Exception {
         if (attributes == null || attributes.isEmpty()) {
             throw new InvalidAttributeValueException("attributes not provided or empty");
         }
 
-        UserModel newUser = new UserModel();
+        User newUser = new User();
+        List<Object> roles = null;
 
         for (Attribute attr : attributes) {
             if (attr.getName().equals(Name.NAME)) {
-                newUser.applyUsername(attr);
+                newUser.setName(AttributeUtil.getAsStringValue(attr));
 
             } else if (attr.getName().equals(ENABLE_NAME)) {
-                newUser.applyUserEnabled(attr);
+                newUser.setBlocked(AttributeUtil.getBooleanValue(attr));
 
             } else if (attr.getName().equals(OperationalAttributes.PASSWORD_NAME)) {
-                newUser.applyNewPassword(attr);
+                AttributeUtil.getGuardedStringValue(attr).access(c -> {
+                    newUser.setPassword(c);
+                });
 
             } else if (attr.getName().equals(ATTR_ROLES)) {
-                newUser.applyGroups(attr);
+                roles = attr.getValue();
 
             } else {
                 if (!schema.containsKey(attr.getName())) {
-                    throw new InvalidAttributeValueException(String.format("Cognito doesn't support to set '%s' attribute of User",
-                            attr.getName()));
+                    invalidSchema(attr.getName());
                 }
-                newUser.applyUserAttribute(attr);
             }
         }
 
-        // Generate username if IDM doesn't have mapping to username
-        if (newUser.username == null) {
-            newUser.username = UUID.randomUUID().toString();
-        }
+        Request<User> request = client2.users().create(newUser);
+        User response = request.execute();
 
-        AdminCreateUserRequest.Builder requestBuilder = AdminCreateUserRequest.builder()
-                .userPoolId(configuration.getDomain())
-                .username(newUser.username)
-                .userAttributes(newUser.userAttributes);
+        Uid newUid = new Uid(response.getId(), new Name(response.getEmail()));
 
-        if (configuration.isSuppressInvitationMessageEnabled()) {
-            requestBuilder.messageAction(MessageActionType.SUPPRESS);
-        }
-
-        AdminCreateUserRequest request = requestBuilder.build();
-
-        AdminCreateUserResponse result = client.adminCreateUser(request);
-
-        checkCognitoResult(result, "AdminCreateUser");
-
-        UserType user = result.user();
-        Uid newUid = new Uid(user.attributes().stream()
-                .filter(a -> a.name().equals(ATTR_USER_ID))
-                .findFirst()
-                .get()
-                .value(),
-                new Name(user.username()));
-
-        // We need to call another API to enable/disable user, password changing and add/remove group for this user.
+        // We need to call another API to add/remove roles for this user.
         // It means that we can't execute this operation as a single transaction.
-        // Therefore, Cognito data may be inconsistent if below callings are failed.
+        // Therefore, Auth0 data may be inconsistent if below callings are failed.
         // Although this connector doesn't handle this situation, IDM can retry the update to resolve this inconsistency.
-        if (Boolean.FALSE.equals(newUser.userEnabled)) {
-            disableUser(newUid, newUid.getNameHint());
+        if (roles != null && !roles.isEmpty()) {
+            userRoleHandler.addRolesToUser(newUid, roles);
         }
-        updatePassword(user.username(), newUser.newPassword, newUser.passwordPermanent);
-        userGroupHandler.addGroupsToUser(newUid.getNameHint(), newUser.addGroups);
 
         return newUid;
     }
 
-    private void updatePassword(String username, GuardedString password, final Boolean permanent) {
-        if (password == null) {
-            return;
-        }
-        password.access(a -> {
-            String clearPassword = String.valueOf(a);
-
-            AdminSetUserPasswordRequest request = AdminSetUserPasswordRequest.builder()
-                    .userPoolId(configuration.getDomain())
-                    .username(username)
-                    .permanent(permanent)
-                    .password(clearPassword)
-                    .build();
-
-            try {
-                AdminSetUserPasswordResponse response = client.adminSetUserPassword(request);
-
-                checkCognitoResult(response, "AdminSetUserPassword");
-            } catch (InvalidPasswordException e) {
-                InvalidAttributeValueException ex = new InvalidAttributeValueException("Password policy error in cognito", e);
-                ex.setAffectedAttributeNames(Arrays.asList(OperationalAttributes.PASSWORD_NAME));
-                throw ex;
-            }
-        });
-    }
-
     /**
-     * The spec for AdminUpdateUserAttributes:
-     * https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_AdminUpdateUserAttributes.html
+     * The spec:
+     * https://auth0.com/docs/api/management/v2/#!/Users/patch_users_by_id
      *
      * @param uid
      * @param modifications
      * @param options
      * @return
      */
-    public Set<AttributeDelta> updateDelta(Uid uid, Set<AttributeDelta> modifications, OperationOptions options) {
-        Name name = resolveName(uid, options);
+    public Set<AttributeDelta> updateDelta(Uid uid, Set<AttributeDelta> modifications, OperationOptions options) throws Auth0Exception {
 
-        UserModel modifyUser = new UserModel();
+        User modifyUser = new User();
+        List<Object> rolesToAdd = null;
+        List<Object> rolesToRemove = null;
+
 
         for (AttributeDelta delta : modifications) {
-            if (delta.getName().equals(Uid.NAME) || delta.getName().equals(Name.NAME)) {
-                // Cognito doesn't support to modify 'username' and 'sub'
+            if (delta.getName().equals(Uid.NAME)) {
+                // Doesn't support to modify 'user_id'
                 invalidSchema(delta.getName());
+
+            } else if (delta.getName().equals(Name.NAME)) {
+                modifyUser.setEmail(AttributeDeltaUtil.getAsStringValue(delta));
 
             } else if (delta.getName().equals(ENABLE_NAME)) {
-                modifyUser.applyUserEnabled(delta);
+                modifyUser.setBlocked(AttributeDeltaUtil.getBooleanValue(delta));
 
             } else if (delta.getName().equals(OperationalAttributes.PASSWORD_NAME)) {
-                modifyUser.applyNewPassword(delta);
+                AttributeDeltaUtil.getGuardedStringValue(delta).access(c -> {
+                    modifyUser.setPassword(c);
+                });
 
             } else if (delta.getName().equals(ATTR_ROLES)) {
-                modifyUser.applyGroups(delta);
-
-            } else if (schema.containsKey(delta.getName())) {
-                modifyUser.applyUserAttribute(delta);
+                rolesToAdd = delta.getValuesToAdd();
+                rolesToRemove = delta.getValuesToRemove();
 
             } else {
-                invalidSchema(delta.getName());
+                if (!schema.containsKey(delta.getName())) {
+                    invalidSchema(delta.getName());
+                }
             }
         }
 
-        if (!modifyUser.userAttributes.isEmpty()) {
-            AdminUpdateUserAttributesRequest request = AdminUpdateUserAttributesRequest.builder()
-                    .userPoolId(configuration.getDomain())
-                    .username(name.getNameValue())
-                    .userAttributes(modifyUser.userAttributes)
-                    .build();
-            try {
-                AdminUpdateUserAttributesResponse result = client.adminUpdateUserAttributes(request);
+        Request<User> request = client2.users().update(uid.getUidValue(), modifyUser);
+        User response = request.execute();
 
-                checkCognitoResult(result, "AdminUpdateUserAttributes");
-            } catch (UserNotFoundException e) {
-                LOGGER.warn("Not found user when deleting. uid: {0}", uid);
-                throw new UnknownUidException(uid, USER_OBJECT_CLASS);
-            }
-        }
-
-        // We need to call another API to enable/disable user, password changing and add/remove group for this user.
+        // We need to call another API to add/remove role for this user.
         // It means that we can't execute this operation as a single transaction.
         // Therefore, Cognito data may be inconsistent if below callings are failed.
         // Although this connector doesn't handle this situation, IDM can retry the update to resolve this inconsistency.
-        enableOrDisableUser(uid, name, modifyUser.userEnabled);
-        updatePassword(name.getNameValue(), modifyUser.newPassword, modifyUser.passwordPermanent);
-        userGroupHandler.updateGroupsToUser(name, modifyUser.addGroups, modifyUser.removeGroups);
+        userRoleHandler.updateRolesToUser(uid, rolesToAdd, rolesToRemove);
 
         return null;
     }
 
-    private class UserModel {
-        String username = null;
-        Boolean userEnabled = null;
-        GuardedString newPassword = null;
-        Boolean passwordPermanent = null;
-        List<AttributeType> userAttributes = new ArrayList<>();
-        List<Object> addGroups = new ArrayList<>();
-        List<Object> removeGroups = new ArrayList<>();
-
-        public void applyUsername(Attribute attr) {
-            this.username = AttributeUtil.getAsStringValue(attr);
-        }
-
-        void applyUserEnabled(Attribute attr) {
-            this.userEnabled = AttributeUtil.getBooleanValue(attr);
-        }
-
-        void applyUserEnabled(AttributeDelta delta) {
-            this.userEnabled = AttributeDeltaUtil.getBooleanValue(delta);
-        }
-
-        void applyNewPassword(Attribute attr) {
-            this.newPassword = AttributeUtil.getGuardedStringValue(attr);
-        }
-
-        void applyNewPassword(AttributeDelta delta) {
-            this.newPassword = AttributeDeltaUtil.getGuardedStringValue(delta);
-        }
-
-        void applyPasswordPermanent(Attribute attr) {
-            this.passwordPermanent = AttributeUtil.getBooleanValue(attr);
-        }
-
-        void applyPasswordPermanent(AttributeDelta delta) {
-            this.passwordPermanent = AttributeDeltaUtil.getBooleanValue(delta);
-        }
-
-        void applyUserAttribute(Attribute attr) {
-            this.userAttributes.add(toCognitoAttribute(schema, attr));
-        }
-
-        void applyUserAttribute(AttributeDelta delta) {
-            // When the IDM decided to delete the attribute, the value is empty
-            if (delta.getValuesToReplace().isEmpty()) {
-                this.userAttributes.add(toCognitoAttributeForDelete(delta));
-            } else {
-                this.userAttributes.add(toCognitoAttribute(schema, delta));
-            }
-        }
-
-        void applyGroups(Attribute attr) {
-            this.addGroups.addAll(attr.getValue());
-        }
-
-        void applyGroups(AttributeDelta delta) {
-            if (delta.getValuesToAdd() != null) {
-                this.addGroups.addAll(delta.getValuesToAdd());
-            }
-            if (delta.getValuesToRemove() != null) {
-                this.removeGroups.addAll(delta.getValuesToRemove());
-            }
-        }
-    }
-
-    private void enableOrDisableUser(Uid uid, Name name, Boolean userEnabled) {
-        if (userEnabled != null) {
-            if (userEnabled) {
-                enableUser(uid, name);
-            } else {
-                disableUser(uid, name);
-            }
-        }
-    }
-
-    private void enableUser(Uid uid, Name name) {
-        AdminEnableUserRequest.Builder request = AdminEnableUserRequest.builder()
-                .userPoolId(configuration.getDomain())
-                .username(name.getNameValue());
-        try {
-            AdminEnableUserResponse result = client.adminEnableUser(request.build());
-
-            checkCognitoResult(result, "AdminEnableUser");
-        } catch (UserNotFoundException e) {
-            LOGGER.warn("Not found user when enabling. uid: {0}", uid);
-            throw new UnknownUidException(uid, USER_OBJECT_CLASS);
-        }
-    }
-
-    private void disableUser(Uid uid, Name name) {
-        AdminDisableUserRequest.Builder request = AdminDisableUserRequest.builder()
-                .userPoolId(configuration.getDomain())
-                .username(name.getNameValue());
-        try {
-            AdminDisableUserResponse result = client.adminDisableUser(request.build());
-
-            checkCognitoResult(result, "AdminDisableUser");
-        } catch (UserNotFoundException e) {
-            LOGGER.warn("Not found user when disabling. uid: {0}", uid);
-            throw new UnknownUidException(uid, USER_OBJECT_CLASS);
-        }
-    }
-
     /**
-     * The spec for AdminDeleteUser:
-     * https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_AdminDeleteUser.html
+     * The spec:
+     * https://auth0.com/docs/api/management/v2/#!/Users/delete_users_by_id
      *
      * @param uid
      * @param options
      */
-    public void deleteUser(Uid uid, OperationOptions options) {
+    public void deleteUser(Uid uid, OperationOptions options) throws Auth0Exception {
         if (uid == null) {
             throw new InvalidAttributeValueException("uid not provided");
         }
 
-        Name name = resolveName(uid, options);
-
-        try {
-            AdminDeleteUserResponse result = client.adminDeleteUser(AdminDeleteUserRequest.builder()
-                    .userPoolId(configuration.getDomain())
-                    .username(name.getNameValue()).build());
-
-            checkCognitoResult(result, "AdminDeleteUser");
-        } catch (UserNotFoundException e) {
-            LOGGER.warn("Not found user when deleting. uid: {0}", uid);
-            throw new UnknownUidException(uid, USER_OBJECT_CLASS);
-        }
-    }
-
-    private Name resolveName(Uid uid, OperationOptions options) {
-        Name nameHint = uid.getNameHint();
-        if (nameHint != null) {
-            return nameHint;
-        }
-
-        // Fallback
-        // If uid doesn't have Name hint, find the user by uid(sub)
-        UserType user = findUserByUid(uid.getUidValue());
-        if (user == null) {
-            LOGGER.warn("Not found user when updating or deleting. uid: {0}", uid);
-            throw new UnknownUidException(uid, USER_OBJECT_CLASS);
-        }
-        return new Name(user.username());
+        Request request = client2.users().delete(uid.getUidValue());
+        request.execute();
     }
 
     private UserType findUserByUid(String uid) {
@@ -545,103 +367,133 @@ public class Auth0UserHandler {
         return result.users().get(0);
     }
 
-    private AdminGetUserResponse findUserByName(String username) {
-        AdminGetUserResponse result = client.adminGetUser(AdminGetUserRequest.builder()
-                .userPoolId(configuration.getDomain())
-                .username(username).build());
-
-        checkCognitoResult(result, "AdminGetUser");
-
-        return result;
-    }
-
-    public void getUsers(Auth0Filter filter, ResultsHandler resultsHandler, OperationOptions options) {
+    public void getUsers(Auth0Filter filter, ResultsHandler resultsHandler, OperationOptions options) throws Auth0Exception {
         // Create full attributesToGet by RETURN_DEFAULT_ATTRIBUTES + ATTRIBUTES_TO_GET
         Set<String> attributesToGet = createFullAttributesToGet(schema, options);
         boolean allowPartialAttributeValues = shouldAllowPartialAttributeValues(options);
 
         if (filter != null && filter.isByName()) {
-            getUserByName(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
+            if (isNameAttribute(configuration, ATTR_PHONE_NUMBER)) {
+                getUserByPhoneNumber(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
+            } else {
+                getUserByEmail(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
+            }
             return;
         }
 
-        ListUsersRequest.Builder request = ListUsersRequest.builder();
-        request.userPoolId(configuration.getDomain());
-        if (filter != null) {
-            request.filter(filter.toFilterString(schema));
+        int pageInitialOffset = resolvePageOffset(options);
+        int pageSize = resolvePageSize(configuration, options);
+
+        paging(connector, pageInitialOffset, pageSize, (offset, size) -> {
+            UserFilter listFilter = new UserFilter()
+                    .withPage(offset, size)
+                    .withTotals(true);
+            Request<UsersPage> request = client2.users().list(listFilter);
+            UsersPage response = request.execute();
+
+            for (User u : response.getItems()) {
+                resultsHandler.handle(toConnectorObject(u, attributesToGet, allowPartialAttributeValues));
+            }
+
+            return response;
+        });
+    }
+
+    private void getUserByPhoneNumber(String phoneNumber, ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
+        phoneNumber = phoneNumber.replace("\"", "\\\"");
+        UserFilter filter = new UserFilter()
+                .withPage(0, 50)
+                .withQuery("phone_number\"" + phoneNumber + "\"");
+        Request<UsersPage> request = client2.users().list(filter);
+        UsersPage response = request.execute();
+
+        for (User user : response.getItems()) {
+            resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues));
         }
-
-        // Caution: we can't use 'request.attributesToGet(attributesToGet)' to filter the user's attributes
-        // because of Cognito limitation.
-        // See https://github.com/openstandia/connector-amazon-cognito-user-pool/issues/2
-
-        ListUsersIterable result = client.listUsersPaginator(request.build());
-
-        result.forEach(r -> r.users().forEach(u -> resultsHandler.handle(toConnectorObject(u, attributesToGet, allowPartialAttributeValues))));
     }
 
+    private void getUserByEmail(String email, ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
+        FieldsFilter filter = new FieldsFilter();
+        Request<List<User>> request = client2.users().listByEmail(email, filter);
+        List<User> response = request.execute();
 
-    private void getUserByName(String username, ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) {
-        AdminGetUserResponse result = findUserByName(username);
-        resultsHandler.handle(toConnectorObject(result, attributesToGet, allowPartialAttributeValues));
-    }
-
-    private ConnectorObject toConnectorObject(AdminGetUserResponse result, Set<String> attributesToGet, boolean allowPartialAttributeValues) {
-        return toConnectorObject(result.username(), result.enabled(), result.userCreateDate(), result.userLastModifiedDate(),
-                result.userStatusAsString(), result.userAttributes(), attributesToGet, allowPartialAttributeValues);
-    }
-
-    private ConnectorObject toConnectorObject(UserType u, Set<String> attributesToGet, boolean allowPartialAttributeValues) {
-        return toConnectorObject(u.username(), u.enabled(), u.userCreateDate(), u.userLastModifiedDate(),
-                u.userStatusAsString(), u.attributes(), attributesToGet, allowPartialAttributeValues);
-    }
-
-    private boolean shouldReturn(Set<String> attrsToGetSet, String attr) {
-        if (attrsToGetSet == null) {
-            return true;
+        for (User user : response) {
+            resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues));
         }
-        return attrsToGetSet.contains(attr);
     }
 
-    private ConnectorObject toConnectorObject(String username, boolean enabled,
-                                              Instant userCreateDate, Instant userLastModifiedDate,
-                                              String status, List<AttributeType> attributes,
-                                              Set<String> attributesToGet, boolean allowPartialAttributeValues) {
+    private ConnectorObject toConnectorObject(User user, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
 
         final ConnectorObjectBuilder builder = new ConnectorObjectBuilder()
                 .setObjectClass(USER_OBJECT_CLASS)
-                // Always returns "username"
-                .setName(username);
+                // Always returns "user_id"
+                .setUid(user.getId());
 
         // Metadata
         if (shouldReturn(attributesToGet, ENABLE_NAME)) {
-            builder.addAttribute(AttributeBuilder.buildEnabled(enabled));
+            builder.addAttribute(AttributeBuilder.buildEnabled(!user.isBlocked()));
         }
         if (shouldReturn(attributesToGet, ATTR_CREATED_AT)) {
-            builder.addAttribute(ATTR_CREATED_AT, Auth0Utils.toZoneDateTime(userCreateDate));
+            builder.addAttribute(ATTR_CREATED_AT, Auth0Utils.toZoneDateTime(user.getCreatedAt()));
         }
         if (shouldReturn(attributesToGet, ATTR_UPDATED_AT)) {
-            builder.addAttribute(ATTR_UPDATED_AT, Auth0Utils.toZoneDateTime(userLastModifiedDate));
+            builder.addAttribute(ATTR_UPDATED_AT, Auth0Utils.toZoneDateTime(user.getUpdatedAt()));
         }
-        if (shouldReturn(attributesToGet, ATTR_MULTIFACTOR_LAST_MODIFIED)) {
-            builder.addAttribute(ATTR_MULTIFACTOR_LAST_MODIFIED, status);
+        if (shouldReturn(attributesToGet, ATTR_LAST_IP)) {
+            builder.addAttribute(ATTR_LAST_IP, user.getLastIP());
+        }
+        if (shouldReturn(attributesToGet, ATTR_LAST_LOGIN)) {
+            builder.addAttribute(ATTR_LAST_LOGIN, Auth0Utils.toZoneDateTime(user.getLastLogin()));
+        }
+        if (shouldReturn(attributesToGet, ATTR_LOGINS_COUNT)) {
+            builder.addAttribute(ATTR_LOGINS_COUNT, user.getLoginsCount());
         }
 
-        for (AttributeType a : attributes) {
-            // Always returns "sub"
-            if (a.name().equals(ATTR_USER_ID)) {
-                builder.setUid(a.value());
-            } else {
-                AttributeInfo attributeInfo = schema.get(a.name());
-                if (shouldReturn(attributesToGet, attributeInfo.getName())) {
-                    builder.addAttribute(toConnectorAttribute(attributeInfo, a));
-                }
+        // Standard
+        if (isNameAttribute(configuration, ATTR_PHONE_NUMBER)) {
+            // Returns phoneNumber as _NAME_
+            builder.setName(user.getPhoneNumber());
+            if (shouldReturn(attributesToGet, ATTR_EMAIL)) {
+                builder.addAttribute(ATTR_EMAIL, user.getEmail());
             }
+        } else {
+            // Returns email as _NAME_
+            builder.setName(user.getEmail());
+            if (shouldReturn(attributesToGet, ATTR_PHONE_NUMBER)) {
+                builder.addAttribute(ATTR_PHONE_NUMBER, user.getPhoneNumber());
+            }
+        }
+        if (shouldReturn(attributesToGet, ATTR_EMAIL_VERIFIED)) {
+            builder.addAttribute(ATTR_EMAIL_VERIFIED, user.isEmailVerified());
+        }
+        if (shouldReturn(attributesToGet, ATTR_PHONE_VERIFIED)) {
+            builder.addAttribute(ATTR_PHONE_VERIFIED, user.isPhoneVerified());
+        }
+        if (shouldReturn(attributesToGet, ATTR_USERNAME)) {
+            builder.addAttribute(ATTR_USERNAME, user.getUsername());
+        }
+        if (shouldReturn(attributesToGet, ATTR_PICTURE)) {
+            builder.addAttribute(ATTR_PICTURE, user.getPicture());
+        }
+        if (shouldReturn(attributesToGet, ATTR_NAME)) {
+            builder.addAttribute(ATTR_NAME, user.getName());
+        }
+        if (shouldReturn(attributesToGet, ATTR_NICKNAME)) {
+            builder.addAttribute(ATTR_NICKNAME, user.getNickname());
+        }
+        if (shouldReturn(attributesToGet, ATTR_GIVEN_NAME)) {
+            builder.addAttribute(ATTR_GIVEN_NAME, user.getGivenName());
+        }
+        if (shouldReturn(attributesToGet, ATTR_FAMILY_NAME)) {
+            builder.addAttribute(ATTR_FAMILY_NAME, user.getFamilyName());
+        }
+        if (shouldReturn(attributesToGet, ATTR_CONNECTION)) {
+            builder.addAttribute(ATTR_CONNECTION, user.getIdentities().stream().map(i -> i.getConnection()).collect(Collectors.toList()));
         }
 
         if (allowPartialAttributeValues) {
-            // Suppress fetching groups
-            LOGGER.ok("Suppress fetching groups because return partial attribute values is requested");
+            // Suppress fetching roles
+            LOGGER.ok("Suppress fetching roles because return partial attribute values is requested");
 
             AttributeBuilder ab = new AttributeBuilder();
             ab.setName(ATTR_ROLES).setAttributeValueCompleteness(AttributeValueCompleteness.INCOMPLETE);
@@ -649,15 +501,15 @@ public class Auth0UserHandler {
             builder.addAttribute(ab.build());
         } else {
             if (attributesToGet == null) {
-                // Suppress fetching groups default
-                LOGGER.ok("Suppress fetching groups because returned by default is true");
+                // Suppress fetching roles default
+                LOGGER.ok("Suppress fetching roles because returned by default is true");
 
             } else if (shouldReturn(attributesToGet, ATTR_ROLES)) {
-                // Fetch groups
-                LOGGER.ok("Fetching groups because attributes to get is requested");
+                // Fetch roles
+                LOGGER.ok("Fetching roles because attributes to get is requested");
 
-                List<String> groups = userGroupHandler.getGroupsForUser(username);
-                builder.addAttribute(ATTR_ROLES, groups);
+                List<String> roles = userRoleHandler.getRolesForUser(connector, user.getId());
+                builder.addAttribute(ATTR_ROLES, roles);
             }
         }
 

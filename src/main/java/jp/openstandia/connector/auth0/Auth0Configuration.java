@@ -22,7 +22,8 @@ import org.identityconnectors.framework.spi.ConfigurationProperty;
 public class Auth0Configuration extends AbstractConfiguration {
 
     private String domain;
-    private GuardedString apiToken;
+    private String clientId;
+    private GuardedString clientSecret;
     private Integer connectionTimeoutInSeconds = 10;
     private Integer readTimeoutInSeconds = 10;
     private Integer maxRetries = 3;
@@ -32,6 +33,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     private GuardedString httpProxyPassword;
     private boolean suppressInvitationMessageEnabled = true;
     private String usernameAttribute = "email";
+    private Integer defaultQueryPageSize = 50;
 
     @ConfigurationProperty(
             order = 1,
@@ -49,16 +51,30 @@ public class Auth0Configuration extends AbstractConfiguration {
 
     @ConfigurationProperty(
             order = 2,
-            displayMessageKey = "Auth0 API Token",
-            helpMessageKey = "Set your Auth0 API token to connect Auth0.",
+            displayMessageKey = "Auth0 Client ID",
+            helpMessageKey = "Set your Auth0 API Client ID to connect Auth0.",
             required = false,
-            confidential = true)
-    public GuardedString getAPIToken() {
-        return apiToken;
+            confidential = false)
+    public String getClientId() {
+        return clientId;
     }
 
-    public void setAPIToken(GuardedString apiToken) {
-        this.apiToken = apiToken;
+    public void setClientId(String apiToken) {
+        this.clientId = apiToken;
+    }
+
+    @ConfigurationProperty(
+            order = 3,
+            displayMessageKey = "Auth0 Client Secret",
+            helpMessageKey = "Set your Auth0 API Client Secret to connect Auth0.",
+            required = false,
+            confidential = true)
+    public GuardedString getClientSecret() {
+        return clientSecret;
+    }
+
+    public void setClientSecret(GuardedString clientSecret) {
+        this.clientSecret = clientSecret;
     }
 
     @ConfigurationProperty(
@@ -185,6 +201,20 @@ public class Auth0Configuration extends AbstractConfiguration {
 
     public void setUsernameAttribute(String usernameAttribute) {
         this.usernameAttribute = usernameAttribute;
+    }
+
+    @ConfigurationProperty(
+            order = 10,
+            displayMessageKey = "Default Query Page Size",
+            helpMessageKey = "Set default query page size. Default: 50",
+            required = false,
+            confidential = false)
+    public Integer getDefaultQueryPageSize() {
+        return defaultQueryPageSize;
+    }
+
+    public void setDefaultQueryPageSize(Integer defaultQueryPageSize) {
+        this.defaultQueryPageSize = defaultQueryPageSize;
     }
 
     @Override

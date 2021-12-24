@@ -47,11 +47,11 @@ class GroupGetTest extends AbstractTest {
         });
 
         // When
-        ConnectorObject result = connector.getObject(Auth0RoleHandler.GROUP_OBJECT_CLASS,
+        ConnectorObject result = connector.getObject(Auth0RoleHandler.ROLE_OBJECT_CLASS,
                 new Uid(groupName, new Name(groupName)), new OperationOptionsBuilder().build());
 
         // Then
-        assertEquals(Auth0RoleHandler.GROUP_OBJECT_CLASS, result.getObjectClass());
+        assertEquals(Auth0RoleHandler.ROLE_OBJECT_CLASS, result.getObjectClass());
         assertEquals(groupName, result.getUid().getUidValue());
         assertEquals(groupName, result.getName().getNameValue());
         assertNotNull(result.getAttributeByName("CreationDate"));
@@ -86,11 +86,11 @@ class GroupGetTest extends AbstractTest {
                 ).build();
 
         // When
-        ConnectorObject result = connector.getObject(Auth0RoleHandler.GROUP_OBJECT_CLASS,
+        ConnectorObject result = connector.getObject(Auth0RoleHandler.ROLE_OBJECT_CLASS,
                 new Uid(groupName, new Name(groupName)), options);
 
         // Then
-        assertEquals(Auth0RoleHandler.GROUP_OBJECT_CLASS, result.getObjectClass());
+        assertEquals(Auth0RoleHandler.ROLE_OBJECT_CLASS, result.getObjectClass());
         assertEquals(3, result.getAttributes().size());
         assertEquals(groupName, result.getUid().getUidValue());
         assertEquals(groupName, result.getName().getNameValue());
@@ -114,7 +114,7 @@ class GroupGetTest extends AbstractTest {
         });
 
         // When
-        ConnectorObject result = connector.getObject(Auth0RoleHandler.GROUP_OBJECT_CLASS,
+        ConnectorObject result = connector.getObject(Auth0RoleHandler.ROLE_OBJECT_CLASS,
                 new Uid(groupName, new Name(groupName)), new OperationOptionsBuilder().build());
 
         // Then

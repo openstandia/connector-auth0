@@ -17,12 +17,15 @@ package jp.openstandia.connector.auth0;
 
 import com.auth0.client.HttpOptions;
 import com.auth0.client.ProxyOptions;
+import com.auth0.client.auth.AuthAPI;
 import com.auth0.client.mgmt.ManagementAPI;
 import com.auth0.client.mgmt.filter.UserFilter;
 import com.auth0.exception.APIException;
 import com.auth0.exception.Auth0Exception;
 import com.auth0.exception.RateLimitException;
+import com.auth0.json.auth.TokenHolder;
 import com.auth0.json.mgmt.users.UsersPage;
+import com.auth0.net.AuthRequest;
 import com.auth0.net.Request;
 import org.identityconnectors.common.StringUtil;
 import org.identityconnectors.common.logging.Log;
@@ -40,12 +43,9 @@ import software.amazon.awssdk.services.cognitoidentityprovider.model.UserNotFoun
 
 import java.net.InetSocketAddress;
 import java.net.Proxy;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
-import static jp.openstandia.connector.auth0.Auth0RoleHandler.GROUP_OBJECT_CLASS;
+import static jp.openstandia.connector.auth0.Auth0RoleHandler.ROLE_OBJECT_CLASS;
 import static jp.openstandia.connector.auth0.Auth0UserHandler.USER_OBJECT_CLASS;
 
 @ConnectorClass(configurationClass = Auth0Configuration.class, displayNameKey = "NRI OpenStandia Amazon Cognito User Pool Connector")
@@ -56,6 +56,7 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
     protected Auth0Configuration configuration;
     protected CognitoIdentityProviderClient client;
     protected ManagementAPI client2;
+    protected TokenHolder tokenHolder;
 
     private Map<String, AttributeInfo> userSchemaMap;
     private String instanceName;
@@ -70,15 +71,15 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
         this.configuration = (Auth0Configuration) configuration;
 
         try {
-            authenticateResource();
-        } catch (RuntimeException e) {
+            initClient();
+        } catch (Exception e) {
             throw processException(e);
         }
 
         LOG.ok("Connector {0} successfully initialized", getClass().getName());
     }
 
-    protected void authenticateResource() {
+    protected void initClient() throws Auth0Exception {
         HttpOptions httpOptions = new HttpOptions();
 
         if (configuration.getConnectionTimeoutInSeconds() != null) {
@@ -99,16 +100,45 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
         }
 
         // Setup client
-        if (configuration.getAPIToken() != null) {
-            configuration.getAPIToken().access(c -> {
-                configuration.getAPIToken().access(s -> {
-                    client2 = new ManagementAPI(configuration.getDomain(), String.valueOf(s), httpOptions);
-                });
-            });
-        }
+        refreshToken();
+        client2 = new ManagementAPI(configuration.getDomain(), tokenHolder.getAccessToken(), httpOptions);
 
         // Verify we can access the API
         checkClient();
+    }
+
+    protected void refreshToken() throws Auth0Exception {
+        if (configuration.getClientId() != null && configuration.getClientSecret() != null) {
+            if (isExpired(tokenHolder)) {
+                final AuthAPI[] authAPI = new AuthAPI[1];
+                configuration.getClientSecret().access(c -> {
+                    authAPI[0] = new AuthAPI(configuration.getDomain(), configuration.getDomain(), String.valueOf(c));
+                });
+                AuthRequest authRequest = authAPI[0].requestToken(String.format("https://%s/api/v2/", configuration.getDomain()));
+                tokenHolder = authRequest.execute();
+
+                if (client2 != null) {
+                    client2.setApiToken(tokenHolder.getAccessToken());
+                }
+            }
+        } else {
+            throw new ConfigurationException("Not configured Client ID or Client Secret for the API client");
+        }
+    }
+
+    protected boolean isExpired(TokenHolder holder) {
+        if (holder == null) {
+            return true;
+        }
+        long expiresAt = holder.getExpiresAt().getTime();
+        long now = new Date().getTime();
+
+        if (expiresAt + (60 * 1000) > now) {
+            LOG.ok("Detected the token is expired");
+            return true;
+        }
+
+        return false;
     }
 
     private void checkClient() {
@@ -173,17 +203,17 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
 
         try {
             if (objectClass.equals(USER_OBJECT_CLASS)) {
-                Auth0UserHandler usersHandler = new Auth0UserHandler(configuration, client2, getUserSchemaMap());
-                return usersHandler.createUser(createAttributes);
+                Auth0UserHandler userHandler = new Auth0UserHandler(configuration, client2, getUserSchemaMap());
+                return userHandler.createUser(createAttributes);
 
-            } else if (objectClass.equals(GROUP_OBJECT_CLASS)) {
-                Auth0RoleHandler groupsHandler = new Auth0RoleHandler(configuration, client);
-                return groupsHandler.createRole(createAttributes);
+            } else if (objectClass.equals(ROLE_OBJECT_CLASS)) {
+                Auth0RoleHandler roleHandler = new Auth0RoleHandler(configuration, client);
+                return roleHandler.createRole(createAttributes);
 
             } else {
                 throw new InvalidAttributeValueException("Unsupported object class " + objectClass);
             }
-        } catch (RuntimeException e) {
+        } catch (Exception e) {
             throw processException(e);
         }
     }
@@ -192,17 +222,17 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
     public Set<AttributeDelta> updateDelta(ObjectClass objectClass, Uid uid, Set<AttributeDelta> modifications, OperationOptions options) {
         try {
             if (objectClass.equals(USER_OBJECT_CLASS)) {
-                Auth0UserHandler usersHandler = new Auth0UserHandler(configuration, client, getUserSchemaMap());
-                return usersHandler.updateDelta(uid, modifications, options);
+                Auth0UserHandler userHandler = new Auth0UserHandler(configuration, client, getUserSchemaMap());
+                return userHandler.updateDelta(uid, modifications, options);
 
-            } else if (objectClass.equals(GROUP_OBJECT_CLASS)) {
-                Auth0RoleHandler groupsHandler = new Auth0RoleHandler(configuration, client);
-                return groupsHandler.updateDelta(uid, modifications, options);
+            } else if (objectClass.equals(ROLE_OBJECT_CLASS)) {
+                Auth0RoleHandler roleHandler = new Auth0RoleHandler(configuration, client);
+                return roleHandler.updateDelta(uid, modifications, options);
 
             } else {
                 throw new InvalidAttributeValueException("Unsupported object class " + objectClass);
             }
-        } catch (RuntimeException e) {
+        } catch (Exception e) {
             throw processException(e);
         }
     }
@@ -211,17 +241,17 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
     public void delete(ObjectClass objectClass, Uid uid, OperationOptions options) {
         try {
             if (objectClass.equals(USER_OBJECT_CLASS)) {
-                Auth0UserHandler usersHandler = new Auth0UserHandler(configuration, client, getUserSchemaMap());
-                usersHandler.deleteUser(uid, options);
+                Auth0UserHandler userHandler = new Auth0UserHandler(configuration, client, getUserSchemaMap());
+                userHandler.deleteUser(uid, options);
 
-            } else if (objectClass.equals(GROUP_OBJECT_CLASS)) {
-                Auth0RoleHandler groupsHandler = new Auth0RoleHandler(configuration, client);
-                groupsHandler.deleteGroup(objectClass, uid, options);
+            } else if (objectClass.equals(ROLE_OBJECT_CLASS)) {
+                Auth0RoleHandler roleHandler = new Auth0RoleHandler(configuration, client);
+                roleHandler.deleteRole(objectClass, uid, options);
 
             } else {
                 throw new InvalidAttributeValueException("Unsupported object class " + objectClass);
             }
-        } catch (RuntimeException e) {
+        } catch (Exception e) {
             throw processException(e);
         }
     }
@@ -235,23 +265,23 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
     public void executeQuery(ObjectClass objectClass, Auth0Filter filter, ResultsHandler resultsHandler, OperationOptions options) {
         if (objectClass.equals(USER_OBJECT_CLASS)) {
             try {
-                Auth0UserHandler usersHandler = new Auth0UserHandler(configuration, client, getUserSchemaMap());
-                usersHandler.getUsers(filter, resultsHandler, options);
+                Auth0UserHandler userHandler = new Auth0UserHandler(configuration, client, getUserSchemaMap());
+                userHandler.getUsers(filter, resultsHandler, options);
             } catch (UserNotFoundException e) {
                 // Don't throw UnknownUidException
                 return;
-            } catch (RuntimeException e) {
+            } catch (Exception e) {
                 throw processException(e);
             }
 
-        } else if (objectClass.equals(GROUP_OBJECT_CLASS)) {
+        } else if (objectClass.equals(ROLE_OBJECT_CLASS)) {
             try {
-                Auth0RoleHandler groupsHandler = new Auth0RoleHandler(configuration, client);
-                groupsHandler.getGroups(filter, resultsHandler, options);
+                Auth0RoleHandler roleHandler = new Auth0RoleHandler(configuration, client);
+                roleHandler.getRoles(filter, resultsHandler, options);
             } catch (ResourceNotFoundException e) {
                 // Don't throw UnknownUidException
                 return;
-            } catch (RuntimeException e) {
+            } catch (Exception e) {
                 throw processException(e);
             }
 
@@ -264,8 +294,8 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
     public void test() {
         try {
             dispose();
-            authenticateResource();
-        } catch (RuntimeException e) {
+            initClient();
+        } catch (Exception e) {
             throw processException(e);
         }
     }

@@ -67,7 +67,7 @@ class GroupDeleteTest extends AbstractTest {
         });
 
         // When
-        connector.delete(Auth0RoleHandler.GROUP_OBJECT_CLASS,
+        connector.delete(Auth0RoleHandler.ROLE_OBJECT_CLASS,
                 new Uid(groupName, new Name(groupName)), new OperationOptionsBuilder().build());
 
         // Then
@@ -88,7 +88,7 @@ class GroupDeleteTest extends AbstractTest {
 
         // When
         UnknownUidException e = assertThrows(UnknownUidException.class, () -> {
-            connector.delete(Auth0RoleHandler.GROUP_OBJECT_CLASS,
+            connector.delete(Auth0RoleHandler.ROLE_OBJECT_CLASS,
                     new Uid(groupName, new Name(groupName)), new OperationOptionsBuilder().build());
         });
 

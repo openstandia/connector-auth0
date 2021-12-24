@@ -54,7 +54,7 @@ class GroupUpdateTest extends AbstractTest {
         });
 
         // When
-        Set<AttributeDelta> updated = connector.updateDelta(Auth0RoleHandler.GROUP_OBJECT_CLASS,
+        Set<AttributeDelta> updated = connector.updateDelta(Auth0RoleHandler.ROLE_OBJECT_CLASS,
                 new Uid(groupName, new Name(groupName)), modifications, new OperationOptionsBuilder().build());
 
         // Then
@@ -78,7 +78,7 @@ class GroupUpdateTest extends AbstractTest {
 
         // When
         UnknownUidException e = assertThrows(UnknownUidException.class, () -> {
-            Set<AttributeDelta> updated = connector.updateDelta(Auth0RoleHandler.GROUP_OBJECT_CLASS,
+            Set<AttributeDelta> updated = connector.updateDelta(Auth0RoleHandler.ROLE_OBJECT_CLASS,
                     new Uid(groupName, new Name(groupName)), modifications, new OperationOptionsBuilder().build());
         });
 

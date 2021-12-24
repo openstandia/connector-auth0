@@ -32,7 +32,7 @@ import static jp.openstandia.connector.auth0.Auth0Utils.*;
 
 public class Auth0RoleHandler {
 
-    public static final ObjectClass GROUP_OBJECT_CLASS = new ObjectClass("Role");
+    public static final ObjectClass ROLE_OBJECT_CLASS = new ObjectClass("Role");
 
     private static final Log LOGGER = Log.getLog(Auth0RoleHandler.class);
 
@@ -54,7 +54,7 @@ public class Auth0RoleHandler {
 
     public static ObjectClassInfo getGroupSchema(Auth0Configuration config) {
         ObjectClassInfoBuilder builder = new ObjectClassInfoBuilder();
-        builder.setType(GROUP_OBJECT_CLASS.getObjectClassValue());
+        builder.setType(ROLE_OBJECT_CLASS.getObjectClassValue());
 
         // __UID__
         builder.addAttributeInfo(AttributeInfoBuilder.define(Uid.NAME)
@@ -132,23 +132,6 @@ public class Auth0RoleHandler {
         // ({http://midpoint.evolveum.com/xml/ns/public/resource/instance-3}Group)".
         Uid newUid = new Uid(group.groupName());
 
-        try {
-            // We need to call another API to add/remove user for this group.
-            // It means that we can't execute this update as a single transaction.
-            // Therefore, Cognito data may be inconsistent if below calling is failed.
-            // Although this connector doesn't handle this situation, IDM can retry the update to resolve this inconsistency.
-            userGroupHandler.updateUsersToGroup(newUid, newGroup.addUsers);
-
-        } catch (ResourceNotFoundException e) {
-            LOGGER.warn(e, "The group was deleted when setting users of the group after created. GroupName: {0}", request.groupName());
-            throw RetryableException.wrap("The group was deleted when setting users of the group after created. GroupName: "
-                    + request.groupName(), e);
-        } catch (UserNotFoundException e) {
-            LOGGER.warn(e, "The user was deleted when setting users of the group after created. GroupName: {0}", request.groupName());
-            throw RetryableException.wrap("The user was deleted when setting users the group after created. GroupName: "
-                    + request.groupName(), e);
-        }
-
         return newUid;
     }
 
@@ -190,23 +173,8 @@ public class Auth0RoleHandler {
                 checkCognitoResult(result, "UpdateGroup");
             } catch (ResourceNotFoundException e) {
                 LOGGER.warn("Not found group when updating. uid: {0}", uid);
-                throw new UnknownUidException(uid, GROUP_OBJECT_CLASS);
+                throw new UnknownUidException(uid, ROLE_OBJECT_CLASS);
             }
-        }
-
-        // We need to call another API to add/remove user for this group.
-        // It means that we can't execute this update as a single transaction.
-        // Therefore, Cognito data may be inconsistent if below calling is failed.
-        // Although this connector doesn't handle this situation, IDM can retry the update to resolve this inconsistency.
-        try {
-            userGroupHandler.updateUsersToGroup(uid, modifyGroup.addUsers, modifyGroup.removeUsers);
-        } catch (ResourceNotFoundException e) {
-            LOGGER.warn(e, "Not found group when updating. uid: {0}", uid);
-            throw new UnknownUidException(uid, GROUP_OBJECT_CLASS);
-        } catch (UserNotFoundException e) {
-            LOGGER.warn(e, "Not found the user when updating. uid: {0}, addUsers: {1}, removeUsers: {2}",
-                    uid, modifyGroup.addUsers, modifyGroup.removeUsers);
-            throw RetryableException.wrap("Need to retry because the user was deleted", e);
         }
 
         return null;
@@ -280,21 +248,19 @@ public class Auth0RoleHandler {
     }
 
     /**
-     * The spec for DeleteGroup:
-     * https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_DeleteGroup.html
+     * The spec:
+     * https://auth0.com/docs/api/management/v2/#!/Roles/delete_roles_by_id
      *
      * @param objectClass
      * @param uid
      * @param options
      */
-    public void deleteGroup(ObjectClass objectClass, Uid uid, OperationOptions options) {
+    public void deleteRole(ObjectClass objectClass, Uid uid, OperationOptions options) {
         if (uid == null) {
             throw new InvalidAttributeValueException("uid not provided");
         }
 
         try {
-            userGroupHandler.removeAllUsers(uid.getUidValue());
-
             DeleteGroupResponse result = client.deleteGroup(DeleteGroupRequest.builder()
                     .userPoolId(configuration.getDomain())
                     .groupName(uid.getUidValue()).build());
@@ -307,15 +273,15 @@ public class Auth0RoleHandler {
     }
 
     /**
-     * The spec for ListGroups:
-     * https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_ListGroups.html
+     * The spec:
+     * https://auth0.com/docs/api/management/v2/#!/Roles/get_roles
      *
      * @param filter
      * @param resultsHandler
      * @param options
      */
-    public void getGroups(Auth0Filter filter,
-                          ResultsHandler resultsHandler, OperationOptions options) {
+    public void getRoles(Auth0Filter filter,
+                         ResultsHandler resultsHandler, OperationOptions options) {
         if (filter != null && (filter.isByName() || filter.isByUid())) {
             getGroupByName(filter.attributeValue, resultsHandler, options);
             return;
@@ -349,7 +315,7 @@ public class Auth0RoleHandler {
         }
 
         ConnectorObjectBuilder builder = new ConnectorObjectBuilder()
-                .setObjectClass(GROUP_OBJECT_CLASS)
+                .setObjectClass(ROLE_OBJECT_CLASS)
                 .setUid(g.groupName())
                 .setName(g.groupName());
 
@@ -364,7 +330,7 @@ public class Auth0RoleHandler {
 
     private ConnectorObject toFullConnectorObject(GroupType g) {
         ConnectorObjectBuilder builder = new ConnectorObjectBuilder()
-                .setObjectClass(GROUP_OBJECT_CLASS)
+                .setObjectClass(ROLE_OBJECT_CLASS)
                 .setUid(new Uid(g.groupName(), new Name(g.groupName())))
                 .setName(g.groupName())
                 .addAttribute(ATTR_DESCRIPTION, g.description());

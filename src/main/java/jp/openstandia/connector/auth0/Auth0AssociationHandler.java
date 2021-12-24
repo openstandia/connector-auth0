@@ -16,8 +16,12 @@
 package jp.openstandia.connector.auth0;
 
 import com.auth0.client.mgmt.ManagementAPI;
+import com.auth0.client.mgmt.filter.PageFilter;
+import com.auth0.exception.Auth0Exception;
+import com.auth0.json.mgmt.Role;
+import com.auth0.json.mgmt.RolesPage;
+import com.auth0.net.Request;
 import org.identityconnectors.common.logging.Log;
-import org.identityconnectors.framework.common.objects.Name;
 import org.identityconnectors.framework.common.objects.Uid;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
@@ -26,10 +30,10 @@ import software.amazon.awssdk.services.cognitoidentityprovider.paginators.ListUs
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 import static jp.openstandia.connector.auth0.Auth0Utils.checkCognitoResult;
+import static jp.openstandia.connector.auth0.Auth0Utils.paging;
 
 public class Auth0AssociationHandler {
 
@@ -51,58 +55,25 @@ public class Auth0AssociationHandler {
         this.client2 = client;
     }
 
-    public void addGroupsToUser(Name name, List<Object> addGroups) {
-        if (!addGroups.isEmpty()) {
-            addGroups.stream().forEach(g -> addUserToGroup(name.getNameValue(), g.toString()));
+    public void addRolesToUser(Uid uid, List<Object> addRoles) throws Auth0Exception {
+        if (addRoles != null && !addRoles.isEmpty()) {
+            List<String> roles = addRoles.stream().map(r -> r.toString()).collect(Collectors.toList());
+            Request request = client2.users().addRoles(uid.getUidValue(), roles);
+            request.execute();
         }
     }
 
-    public void updateGroupsToUser(Name name, List<Object> addGroups, List<Object> removeGroups) {
-        if (!addGroups.isEmpty()) {
-            addGroups.stream().forEach(g -> addUserToGroup(name.getNameValue(), g.toString()));
+    public void updateRolesToUser(Uid uid, List<Object> addRoles, List<Object> removeGroups) throws Auth0Exception {
+        if (addRoles != null && !addRoles.isEmpty()) {
+            List<String> roles = addRoles.stream().map(r -> r.toString()).collect(Collectors.toList());
+            Request request = client2.users().addRoles(uid.getUidValue(), roles);
+            request.execute();
         }
-        if (!removeGroups.isEmpty()) {
-            removeGroups.stream().forEach(g -> removeUserFromGroup(name.getNameValue(), g.toString()));
+        if (removeGroups != null && !removeGroups.isEmpty()) {
+            List<String> roles = addRoles.stream().map(r -> r.toString()).collect(Collectors.toList());
+            Request request = client2.users().removeRoles(uid.getUidValue(), roles);
+            request.execute();
         }
-    }
-
-    public void updateUsersToGroup(Uid groupUid, List<Object> addUsers, List<Object> removeUsers) {
-        if (addUsers != null) {
-            addUsers.stream().forEach(u -> addUserToGroup(u.toString(), groupUid.getUidValue()));
-        }
-        if (removeUsers != null) {
-            removeUsers.stream().forEach(u -> removeUserFromGroup(u.toString(), groupUid.getUidValue()));
-        }
-    }
-
-    public void updateUsersToGroup(Uid groupUid, List<Object> addUsers) {
-        if (addUsers == null) {
-            return;
-        }
-
-        Set<String> addUsersSet = addUsers.stream()
-                .map(o -> o.toString())
-                .collect(Collectors.toSet());
-
-        getUsers(groupUid.getUidValue(), u -> {
-            if (!addUsersSet.remove(u.username())) {
-                removeUserFromGroup(u.username(), groupUid.getUidValue());
-            }
-        });
-
-        // Add users to the group
-        addUsersSet.forEach(u -> addUserToGroup(u, groupUid.getUidValue()));
-    }
-
-    private void addUserToGroup(String username, String groupName) {
-        AdminAddUserToGroupRequest.Builder request = AdminAddUserToGroupRequest.builder()
-                .userPoolId(configuration.getDomain())
-                .username(username)
-                .groupName(groupName);
-
-        AdminAddUserToGroupResponse result = client.adminAddUserToGroup(request.build());
-
-        checkCognitoResult(result, "AdminAddUserToGroup");
     }
 
     private void removeUserFromGroup(String username, String groupName) {
@@ -143,12 +114,27 @@ public class Auth0AssociationHandler {
         result.forEach(r -> r.users().stream().forEach(u -> handler.handle(u)));
     }
 
-    public List<String> getGroupsForUser(String username) {
-        List<String> groups = new ArrayList<>();
-        getGroups(username, g -> {
-            groups.add(g.groupName());
+    public List<String> getRolesForUser(Auth0Connector connector, String userId) throws Auth0Exception {
+        int pageInitialOffset = 0;
+        int pageSize = 50;
+
+        List<String> roles = new ArrayList<>();
+
+        paging(connector, pageInitialOffset, pageSize, (offset, size) -> {
+            PageFilter filter = new PageFilter()
+                    .withTotals(true)
+                    .withPage(offset, size);
+            Request<RolesPage> request = client2.users().listRoles(userId, filter);
+            RolesPage response = request.execute();
+
+            for (Role role : response.getItems()) {
+                roles.add(role.getId());
+            }
+
+            return response;
         });
-        return groups;
+
+        return roles;
     }
 
     private interface GroupHandler {

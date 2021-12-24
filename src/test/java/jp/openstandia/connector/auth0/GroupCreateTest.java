@@ -56,7 +56,7 @@ class GroupCreateTest extends AbstractTest {
         });
 
         // When
-        Uid uid = connector.create(Auth0RoleHandler.GROUP_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
+        Uid uid = connector.create(Auth0RoleHandler.ROLE_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
 
         // Then
         assertEquals(groupName, uid.getUidValue());
@@ -83,7 +83,7 @@ class GroupCreateTest extends AbstractTest {
 
         // When
         AlreadyExistsException e = assertThrows(AlreadyExistsException.class, () -> {
-            Uid uid = connector.create(Auth0RoleHandler.GROUP_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
+            Uid uid = connector.create(Auth0RoleHandler.ROLE_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
         });
 
         // Then

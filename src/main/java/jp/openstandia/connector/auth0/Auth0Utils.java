@@ -15,21 +15,20 @@
  */
 package jp.openstandia.connector.auth0;
 
+import com.auth0.exception.APIException;
+import com.auth0.exception.Auth0Exception;
+import com.auth0.json.mgmt.Page;
 import org.identityconnectors.framework.common.exceptions.ConnectorException;
 import org.identityconnectors.framework.common.exceptions.InvalidAttributeValueException;
 import org.identityconnectors.framework.common.objects.*;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.AttributeType;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.CognitoIdentityProviderResponse;
 
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -39,9 +38,10 @@ import java.util.stream.Collectors;
  */
 public class Auth0Utils {
 
-    public static ZonedDateTime toZoneDateTime(Instant instant) {
+    public static ZonedDateTime toZoneDateTime(Date date) {
         ZoneId zone = ZoneId.systemDefault();
-        return ZonedDateTime.ofInstant(instant, zone);
+        return ZonedDateTime.ofInstant(date.toInstant(), zone);
+
     }
 
     public static ZonedDateTime toZoneDateTime(String yyyymmdd) {
@@ -197,9 +197,16 @@ public class Auth0Utils {
         return Boolean.TRUE.equals(options.getReturnDefaultAttributes());
     }
 
+    public static boolean shouldReturn(Set<String> attrsToGetSet, String attr) {
+        if (attrsToGetSet == null) {
+            return true;
+        }
+        return attrsToGetSet.contains(attr);
+    }
+
     public static void invalidSchema(String name) throws InvalidAttributeValueException {
         InvalidAttributeValueException exception = new InvalidAttributeValueException(
-                String.format("Cognito doesn't support to set '%s' attribute", name));
+                String.format("Auth0 doesn't support to set '%s' attribute", name));
         exception.setAffectedAttributeNames(Arrays.asList(name));
         throw exception;
     }
@@ -233,5 +240,51 @@ public class Auth0Utils {
                 .filter(entry -> entry.getValue().isReturnedByDefault())
                 .map(entry -> entry.getKey())
                 .collect(Collectors.toSet());
+    }
+
+    public static int resolvePageSize(Auth0Configuration configuration, OperationOptions options) {
+        if (options.getPageSize() != null) {
+            return options.getPageSize();
+        }
+        return configuration.getDefaultQueryPageSize();
+    }
+
+    public static int resolvePageOffset(OperationOptions options) {
+        if (options.getPagedResultsOffset() != null) {
+            return options.getPagedResultsOffset();
+        }
+        return 0;
+    }
+
+    public static void paging(Auth0Connector connector, int initialOffset, int pageSize, PageFunction<Integer, Integer, Page<?>> callback) throws Auth0Exception {
+        int offset = initialOffset;
+
+        while (true) {
+            try {
+                Page<?> response = callback.apply(offset, pageSize);
+                if (hasNextPage(response)) {
+                    offset++;
+                    continue;
+                }
+                break;
+            } catch (APIException e) {
+                // If the api token is expired during paging process, refresh the token then retry
+                if (e.getStatusCode() == 401 && e.getError().equals("Invalid tokens.")) {
+                    connector.refreshToken();
+                    continue;
+                }
+                throw e;
+            }
+        }
+    }
+
+    @FunctionalInterface
+    interface PageFunction<One, Two, Result> {
+        public Result apply(One one, Two two) throws Auth0Exception;
+    }
+
+    private static boolean hasNextPage(Page<?> page) {
+        int remains = (page.getTotal() - page.getStart() + page.getLimit());
+        return remains > 0;
     }
 }
