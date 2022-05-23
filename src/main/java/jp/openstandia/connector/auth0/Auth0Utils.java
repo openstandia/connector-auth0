@@ -65,7 +65,7 @@ public class Auth0Utils {
         public <T, R> void apply(String attrName, T value) {
             if (shouldReturn(attributesToGet, attrName)) {
                 if (value != null) {
-                    builder.addAttribute(AttributeBuilder.build(attrName, value));
+                    addAttribute(attrName, value);
                 }
             }
         }
@@ -78,7 +78,7 @@ public class Auth0Utils {
                         if (result instanceof Attribute) {
                             builder.addAttribute((Attribute) result);
                         } else {
-                            builder.addAttribute(AttributeBuilder.build(attrName, result));
+                            addAttribute(attrName, result);
                         }
                     }
                 }
@@ -92,9 +92,17 @@ public class Auth0Utils {
                     if (result instanceof Attribute) {
                         builder.addAttribute((Attribute) result);
                     } else {
-                        builder.addAttribute(AttributeBuilder.build(attrName, result));
+                        addAttribute(attrName, result);
                     }
                 }
+            }
+        }
+
+        private <T> void addAttribute(String attrName, T value) {
+            if (value instanceof Collection) {
+                builder.addAttribute(AttributeBuilder.build(attrName, (Collection<?>) value));
+            } else {
+                builder.addAttribute(AttributeBuilder.build(attrName, value));
             }
         }
 
