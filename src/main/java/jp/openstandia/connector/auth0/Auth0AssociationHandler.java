@@ -81,13 +81,13 @@ public class Auth0AssociationHandler {
         return client.getOrganizationsForUser(userId);
     }
 
-    public void addOrganizationRolesToUser(Uid uid, List<Object> orgRoles) {
+    public void addOrganizationRolesToUser(Uid uid, List<Object> orgRoles) throws Auth0Exception {
         if (isNotEmpty(orgRoles)) {
             client.addOrganizationRolesToUser(uid, toOrgRoles(orgRoles));
         }
     }
 
-    public void updateOrganizationRolesToUser(Uid uid, List<Object> orgRolesToAdd, List<Object> orgRolesToRemove) {
+    public void updateOrganizationRolesToUser(Uid uid, List<Object> orgRolesToAdd, List<Object> orgRolesToRemove) throws Auth0Exception {
         if (isNotEmpty(orgRolesToAdd)) {
             client.addOrganizationRolesToUser(uid, toOrgRoles(orgRolesToAdd));
         }

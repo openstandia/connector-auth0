@@ -134,48 +134,60 @@ public class Auth0Client {
     // User
 
     public User createUser(User newUser) throws Auth0Exception {
-        Request<User> request = internalClient.users().create(newUser);
-        User response = request.execute();
-        return response;
+        return withRetry(() -> {
+            Request<User> request = internalClient.users().create(newUser);
+            User response = request.execute();
+            return response;
+        });
     }
 
     public void updateUser(Uid uid, User patchUser) throws Auth0Exception {
-        Request<User> request = internalClient.users().update(uid.getUidValue(), patchUser);
-        request.execute();
+        withRetry(() -> {
+            Request<User> request = internalClient.users().update(uid.getUidValue(), patchUser);
+            return request.execute();
+        });
     }
 
     public void deleteUser(Uid uid) throws Auth0Exception {
-        Request request = internalClient.users().delete(uid.getUidValue());
-        request.execute();
+        withRetry(() -> {
+            Request request = internalClient.users().delete(uid.getUidValue());
+            return request.execute();
+        });
     }
 
     public User getUserByUid(String userId, UserFilter filter) throws Auth0Exception {
-        Request<User> request = internalClient.users().get(userId, filter);
-        User user = request.execute();
-        return user;
+        return withRetry(() -> {
+            Request<User> request = internalClient.users().get(userId, filter);
+            User user = request.execute();
+            return user;
+        });
     }
 
     public List<User> getUserByNameAttr(String attrValue, UserFilter filter) throws Auth0Exception {
-        attrValue = attrValue.replace("\"", "\\\"");
-        filter.withPage(0, 2)
-                .withQuery(configuration.getUsernameAttribute() + ":\"" + attrValue + "\"");
+        return withRetry(() -> {
+            String escaped = attrValue.replace("\"", "\\\"");
+            filter.withPage(0, 2)
+                    .withQuery(configuration.getUsernameAttribute() + ":\"" + escaped + "\"");
 
-        Request<UsersPage> request = internalClient.users().list(filter);
-        UsersPage response = request.execute();
-        return response.getItems();
+            Request<UsersPage> request = internalClient.users().list(filter);
+            UsersPage response = request.execute();
+            return response.getItems();
+        });
     }
 
     public List<User> getUserByEmail(String email, FieldsFilter filter) throws Auth0Exception {
-        Request<List<User>> request = internalClient.users().listByEmail(email, filter);
-        List<User> response = request.execute();
-        return response;
+        return withRetry(() -> {
+            Request<List<User>> request = internalClient.users().listByEmail(email, filter);
+            List<User> response = request.execute();
+            return response;
+        });
     }
 
     public void getUsers(UserFilter userFilter, OperationOptions options, ResultHandlerFunction<User, Boolean> resultsHandler) throws Auth0Exception {
         int pageInitialOffset = resolvePageOffset(options);
         int pageSize = resolvePageSize(configuration, options);
 
-        paging(userFilter, pageInitialOffset, pageSize, (filter) -> {
+        withPaging(userFilter, pageInitialOffset, pageSize, (filter) -> {
             Request<UsersPage> request = internalClient.users().list(filter);
             UsersPage response = request.execute();
 
@@ -191,19 +203,23 @@ public class Auth0Client {
     }
 
     public void addRolesToUser(Uid uid, List<String> roleIds) throws Auth0Exception {
-        Request request = internalClient.users().addRoles(uid.getUidValue(), roleIds);
-        request.execute();
+        withRetry(() -> {
+            Request request = internalClient.users().addRoles(uid.getUidValue(), roleIds);
+            return request.execute();
+        });
     }
 
     public void removeRolesToUser(Uid uid, List<String> roleIds) throws Auth0Exception {
-        Request request = internalClient.users().removeRoles(uid.getUidValue(), roleIds);
-        request.execute();
+        withRetry(() -> {
+            Request request = internalClient.users().removeRoles(uid.getUidValue(), roleIds);
+            return request.execute();
+        });
     }
 
     public List<Role> getRolesForUser(String userId) throws Auth0Exception {
         List<Role> roles = new ArrayList<>();
 
-        paging(new PageFilter(), 0, 50, (filter) -> {
+        withPaging(new PageFilter(), 0, 50, (filter) -> {
             Request<RolesPage> request = internalClient.users().listRoles(userId, filter);
             RolesPage response = request.execute();
 
@@ -219,8 +235,10 @@ public class Auth0Client {
         Members members = new Members(Stream.of(uid.getUidValue()).collect(Collectors.toList()));
         // Unfortunately, we need to call this API per organization
         for (String orgId : orgIds) {
-            Request request = internalClient.organizations().addMembers(orgId, members);
-            request.execute();
+            withRetry(() -> {
+                Request request = internalClient.organizations().addMembers(orgId, members);
+                return request.execute();
+            });
         }
     }
 
@@ -228,15 +246,17 @@ public class Auth0Client {
         Members members = new Members(Stream.of(uid.getUidValue()).collect(Collectors.toList()));
         // Unfortunately, we need to call this API per organization
         for (String orgId : orgIds) {
-            Request request = internalClient.organizations().deleteMembers(orgId, members);
-            request.execute();
+            withRetry(() -> {
+                Request request = internalClient.organizations().deleteMembers(orgId, members);
+                return request.execute();
+            });
         }
     }
 
     public List<Organization> getOrganizationsForUser(String userId) throws Auth0Exception {
         List<Organization> orgs = new ArrayList<>();
 
-        paging(new PageFilter(), 0, 50, (filter) -> {
+        withPaging(new PageFilter(), 0, 50, (filter) -> {
             Request<OrganizationsPage> request = internalClient.users().getOrganizations(userId, filter);
             OrganizationsPage response = request.execute();
 
@@ -248,17 +268,23 @@ public class Auth0Client {
         return orgs;
     }
 
-    public void addOrganizationRolesToUser(Uid uid, Map<String, List<String>> orgRoles) {
+    public void addOrganizationRolesToUser(Uid uid, Map<String, List<String>> orgRoles) throws Auth0Exception {
         for (Map.Entry<String, List<String>> entry : orgRoles.entrySet()) {
-            Roles roles = new Roles(entry.getValue());
-            internalClient.organizations().addRoles(entry.getKey(), uid.getUidValue(), roles);
+            withRetry(() -> {
+                Roles roles = new Roles(entry.getValue());
+                Request<Void> request = internalClient.organizations().addRoles(entry.getKey(), uid.getUidValue(), roles);
+                return request.execute();
+            });
         }
     }
 
-    public void removeOrganizationRolesToUser(Uid uid, Map<String, List<String>> orgRoles) {
+    public void removeOrganizationRolesToUser(Uid uid, Map<String, List<String>> orgRoles) throws Auth0Exception {
         for (Map.Entry<String, List<String>> entry : orgRoles.entrySet()) {
-            Roles roles = new Roles(entry.getValue());
-            internalClient.organizations().deleteRoles(entry.getKey(), uid.getUidValue(), roles);
+            withRetry(() -> {
+                Roles roles = new Roles(entry.getValue());
+                Request<Void> request = internalClient.organizations().deleteRoles(entry.getKey(), uid.getUidValue(), roles);
+                return request.execute();
+            });
         }
     }
 
@@ -267,7 +293,7 @@ public class Auth0Client {
 
         List<Organization> orgs = getOrganizationsForUser(userId);
         for (Organization org : orgs) {
-            paging(new PageFilter(), 0, 50, (filter) -> {
+            withPaging(new PageFilter(), 0, 50, (filter) -> {
                 Request<RolesPage> request = internalClient.organizations().getRoles(org.getId(), userId, filter);
                 RolesPage response = request.execute();
 
@@ -282,19 +308,23 @@ public class Auth0Client {
     }
 
     public void addPermissionsToUser(Uid uid, List<Permission> permissions) throws Auth0Exception {
-        Request request = internalClient.users().addPermissions(uid.getUidValue(), permissions);
-        request.execute();
+        withRetry(() -> {
+            Request request = internalClient.users().addPermissions(uid.getUidValue(), permissions);
+            return request.execute();
+        });
     }
 
     public void removePermissionsToUser(Uid uid, List<Permission> permissions) throws Auth0Exception {
-        Request request = internalClient.users().removePermissions(uid.getUidValue(), permissions);
-        request.execute();
+        withRetry(() -> {
+            Request request = internalClient.users().removePermissions(uid.getUidValue(), permissions);
+            return request.execute();
+        });
     }
 
     public List<Permission> getPermissionsForUser(String userId) throws Auth0Exception {
         List<Permission> roles = new ArrayList<>();
 
-        paging(new PageFilter(), 0, 50, (filter) -> {
+        withPaging(new PageFilter(), 0, 50, (filter) -> {
             Request<PermissionsPage> request = internalClient.users().listPermissions(userId, filter);
             PermissionsPage response = request.execute();
 
@@ -309,34 +339,44 @@ public class Auth0Client {
     // Role
 
     public Role createRole(Role newRole) throws Auth0Exception {
-        Request<Role> request = internalClient.roles().create(newRole);
-        Role response = request.execute();
-        return response;
+        return withRetry(() -> {
+            Request<Role> request = internalClient.roles().create(newRole);
+            Role response = request.execute();
+            return response;
+        });
     }
 
     public void updateRole(Uid uid, Role patchRole) throws Auth0Exception {
-        Request<Role> request = internalClient.roles().update(uid.getUidValue(), patchRole);
-        request.execute();
+        withRetry(() -> {
+            Request<Role> request = internalClient.roles().update(uid.getUidValue(), patchRole);
+            return request.execute();
+        });
     }
 
     public void deleteRole(Uid uid) throws Auth0Exception {
-        Request request = internalClient.roles().delete(uid.getUidValue());
-        request.execute();
+        withRetry(() -> {
+            Request request = internalClient.roles().delete(uid.getUidValue());
+            return request.execute();
+        });
     }
 
     public Role getRoleByUid(String userId) throws Auth0Exception {
-        Request<Role> request = internalClient.roles().get(userId);
-        Role role = request.execute();
-        return role;
+        return withRetry(() -> {
+            Request<Role> request = internalClient.roles().get(userId);
+            Role role = request.execute();
+            return role;
+        });
     }
 
     public List<Role> getRoleByName(String roleName) throws Auth0Exception {
-        RolesFilter filter = new RolesFilter().withPage(0, 2)
-                .withName(roleName);
+        return withRetry(() -> {
+            RolesFilter filter = new RolesFilter().withPage(0, 2)
+                    .withName(roleName);
 
-        Request<RolesPage> request = internalClient.roles().list(filter);
-        RolesPage response = request.execute();
-        return response.getItems();
+            Request<RolesPage> request = internalClient.roles().list(filter);
+            RolesPage response = request.execute();
+            return response.getItems();
+        });
     }
 
     public void getRoles(OperationOptions options, ResultHandlerFunction<Role, Boolean> resultsHandler) throws Auth0Exception {
@@ -345,7 +385,7 @@ public class Auth0Client {
 
         RolesFilter rolesFilter = new RolesFilter();
 
-        paging(rolesFilter, pageInitialOffset, pageSize, (filter) -> {
+        withPaging(rolesFilter, pageInitialOffset, pageSize, (filter) -> {
             Request<RolesPage> request = internalClient.roles().list(filter);
             RolesPage response = request.execute();
 
@@ -361,19 +401,23 @@ public class Auth0Client {
     }
 
     public void addPermissionsToRole(Uid uid, List<Permission> permissions) throws Auth0Exception {
-        Request request = internalClient.roles().addPermissions(uid.getUidValue(), permissions);
-        request.execute();
+        withRetry(() -> {
+            Request request = internalClient.roles().addPermissions(uid.getUidValue(), permissions);
+            return request.execute();
+        });
     }
 
     public void removePermissionsToRole(Uid uid, List<Permission> permissions) throws Auth0Exception {
-        Request request = internalClient.roles().removePermissions(uid.getUidValue(), permissions);
-        request.execute();
+        withRetry(() -> {
+            Request request = internalClient.roles().removePermissions(uid.getUidValue(), permissions);
+            return request.execute();
+        });
     }
 
     public List<Permission> getPermissionsForRole(String roleId) throws Auth0Exception {
         List<Permission> roles = new ArrayList<>();
 
-        paging(new PageFilter(), 0, 50, (filter) -> {
+        withPaging(new PageFilter(), 0, 50, (filter) -> {
             Request<PermissionsPage> request = internalClient.roles().listPermissions(roleId, filter);
             PermissionsPage response = request.execute();
 
@@ -388,31 +432,41 @@ public class Auth0Client {
     // Organization
 
     public Organization createOrganization(Organization newOrg) throws Auth0Exception {
-        Request<Organization> request = internalClient.organizations().create(newOrg);
-        Organization response = request.execute();
-        return response;
+        return withRetry(() -> {
+            Request<Organization> request = internalClient.organizations().create(newOrg);
+            Organization response = request.execute();
+            return response;
+        });
     }
 
     public void updateOrganization(Uid uid, Organization patchOrg) throws Auth0Exception {
-        Request<Organization> request = internalClient.organizations().update(uid.getUidValue(), patchOrg);
-        request.execute();
+        withRetry(() -> {
+            Request<Organization> request = internalClient.organizations().update(uid.getUidValue(), patchOrg);
+            return request.execute();
+        });
     }
 
     public void deleteOrganization(Uid uid) throws Auth0Exception {
-        Request request = internalClient.organizations().delete(uid.getUidValue());
-        request.execute();
+        withRetry(() -> {
+            Request request = internalClient.organizations().delete(uid.getUidValue());
+            return request.execute();
+        });
     }
 
     public Organization getOrganizationByUid(String orgId) throws Auth0Exception {
-        Request<Organization> request = internalClient.organizations().get(orgId);
-        Organization org = request.execute();
-        return org;
+        return withRetry(() -> {
+            Request<Organization> request = internalClient.organizations().get(orgId);
+            Organization org = request.execute();
+            return org;
+        });
     }
 
     public Organization getOrganizationByName(String orgName) throws Auth0Exception {
-        Request<Organization> request = internalClient.organizations().getByName(orgName);
-        Organization response = request.execute();
-        return response;
+        return withRetry(() -> {
+            Request<Organization> request = internalClient.organizations().getByName(orgName);
+            Organization response = request.execute();
+            return response;
+        });
     }
 
     public void getOrganizations(OperationOptions options, ResultHandlerFunction<Organization, Boolean> resultsHandler) throws Auth0Exception {
@@ -421,7 +475,7 @@ public class Auth0Client {
 
         PageFilter rolesFilter = new PageFilter();
 
-        paging(rolesFilter, pageInitialOffset, pageSize, (filter) -> {
+        withPaging(rolesFilter, pageInitialOffset, pageSize, (filter) -> {
             Request<OrganizationsPage> request = internalClient.organizations().list(filter);
             OrganizationsPage response = request.execute();
 
@@ -438,23 +492,56 @@ public class Auth0Client {
 
     // Utilities
 
-    private <T extends PageFilter> void paging(T filter, int initialOffset, int pageSize, PageFunction<T, Page<?>> callback) throws Auth0Exception {
+    private <T extends PageFilter> void withPaging(T filter, int initialOffset, int pageSize, PageFunction<T, Page<?>> callback) throws Auth0Exception {
         int offset = initialOffset;
         boolean retried = false;
 
         filter.withTotals(true);
 
         while (true) {
-            try {
-                filter.withPage(offset, pageSize);
+            filter.withPage(offset, pageSize);
 
+            Page<?> result = withRetry(() -> {
                 Page<?> response = callback.apply(filter);
-                if (hasNextPage(response)) {
-                    offset++;
-                    retried = false;
-                    continue;
-                }
-                break;
+                return response;
+            });
+
+            if (hasNextPage(result)) {
+                offset++;
+                continue;
+            }
+            break;
+        }
+    }
+
+    private <T extends QueryFilter> void withPaging(T filter, int initialOffset, int pageSize, PageFunction<T, Page<?>> callback) throws Auth0Exception {
+        int offset = initialOffset;
+
+        filter.withTotals(true);
+
+        while (true) {
+            filter.withPage(offset, pageSize);
+
+            Page<?> result = withRetry(() -> {
+                Page<?> response = callback.apply(filter);
+                return response;
+            });
+
+            if (hasNextPage(result)) {
+                offset++;
+                continue;
+            }
+            break;
+        }
+    }
+
+    private <T> T withRetry(APIFunction<T> callback) throws Auth0Exception {
+        boolean retried = false;
+
+        while (true) {
+            try {
+                T response = callback.apply();
+                return response;
             } catch (APIException e) {
                 // If the api token is expired during paging process, refresh the token then retry
                 if (!retried && e.getStatusCode() == 401 && e.getError().equals("Invalid tokens.")) {
@@ -467,33 +554,9 @@ public class Auth0Client {
         }
     }
 
-    private <T extends QueryFilter> void paging(T filter, int initialOffset, int pageSize, PageFunction<T, Page<?>> callback) throws Auth0Exception {
-        int offset = initialOffset;
-        boolean retried = false;
-
-        filter.withTotals(true);
-
-        while (true) {
-            try {
-                filter.withPage(offset, pageSize);
-
-                Page<?> response = callback.apply(filter);
-                if (hasNextPage(response)) {
-                    offset++;
-                    retried = false;
-                    continue;
-                }
-                break;
-            } catch (APIException e) {
-                // If the api token is expired during paging process, refresh the token then retry
-                if (!retried && e.getStatusCode() == 401 && e.getError().equals("Invalid tokens.")) {
-                    refreshToken();
-                    retried = true;
-                    continue;
-                }
-                throw e;
-            }
-        }
+    @FunctionalInterface
+    interface APIFunction<Result> {
+        public Result apply() throws Auth0Exception;
     }
 
     @FunctionalInterface
