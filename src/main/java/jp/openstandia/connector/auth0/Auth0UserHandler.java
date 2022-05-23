@@ -367,7 +367,7 @@ public class Auth0UserHandler {
 
             // Metadata
             else if (attr.getName().equals(OperationalAttributes.ENABLE_NAME)) {
-                newUser.setBlocked(AttributeUtil.getBooleanValue(attr));
+                newUser.setBlocked(!AttributeUtil.getBooleanValue(attr));
 
             } else if (attr.getName().equals(ATTR_CONNECTION)) {
                 newUser.setConnection(AttributeUtil.getAsStringValue(attr));
@@ -498,7 +498,7 @@ public class Auth0UserHandler {
 
             // Metadata
             else if (delta.getName().equals(OperationalAttributes.ENABLE_NAME)) {
-                modifyUser.setBlocked(AttributeDeltaUtil.getBooleanValue(delta));
+                modifyUser.setBlocked(!AttributeDeltaUtil.getBooleanValue(delta));
 
             } else if (delta.getName().equals(ATTR_CONNECTION)) {
                 modifyUser.setConnection(AttributeDeltaUtil.getAsStringValue(delta));

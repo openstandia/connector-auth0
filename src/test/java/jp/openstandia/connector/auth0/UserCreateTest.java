@@ -134,4 +134,33 @@ class UserCreateTest extends AbstractTest {
         // Then
         assertNotNull(e);
     }
+
+    @Test
+    void disableUser() {
+        // Given
+        String userId = "auth0|61c5cc0078d9e300758160d6";
+        String email = "foo@example.com";
+
+        Set<Attribute> attrs = new HashSet<>();
+        attrs.add(new Name(email));
+        attrs.add(AttributeBuilder.buildPassword("secret".toCharArray()));
+        attrs.add(AttributeBuilder.buildEnabled(false));
+
+        AtomicReference<User> created = new AtomicReference<User>();
+        mockClient.createUser = ((user) -> {
+            user.setId(userId);
+            created.set(user);
+            return user;
+        });
+
+        // When
+        Uid uid = connector.create(Auth0UserHandler.USER_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
+
+        // Then
+        assertEquals(userId, uid.getUidValue());
+
+        User newUser = created.get();
+        assertNotNull(newUser);
+        assertTrue(newUser.isBlocked());
+    }
 }

@@ -19,6 +19,7 @@ import com.auth0.exception.APIException;
 import com.auth0.exception.Auth0Exception;
 import com.auth0.json.mgmt.users.User;
 import jp.openstandia.connector.auth0.Auth0Client;
+import org.identityconnectors.framework.common.objects.Uid;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -29,6 +30,7 @@ public class MockClient extends Auth0Client {
 
     // User
     public MockFunction<User, User> createUser;
+    public MockBiConsumer<Uid, User> updateUser;
 
     private MockClient() {
     }
@@ -65,8 +67,18 @@ public class MockClient extends Auth0Client {
         return createUser.apply(newUser);
     }
 
+    @Override
+    public void updateUser(Uid uid, User patchUser) throws Auth0Exception {
+        updateUser.accept(uid, patchUser);
+    }
+
     @FunctionalInterface
     public interface MockFunction<T, R> {
         R apply(T t) throws Auth0Exception;
+    }
+
+    @FunctionalInterface
+    public interface MockBiConsumer<T, U> {
+        void accept(T t, U u) throws Auth0Exception;
     }
 }
