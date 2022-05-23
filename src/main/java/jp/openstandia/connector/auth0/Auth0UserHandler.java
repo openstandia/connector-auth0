@@ -26,7 +26,6 @@ import org.identityconnectors.common.logging.Log;
 import org.identityconnectors.framework.common.objects.*;
 
 import java.time.ZonedDateTime;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -39,9 +38,11 @@ import static org.identityconnectors.framework.common.objects.OperationalAttribu
 
 public class Auth0UserHandler {
 
-    public static final ObjectClass USER_OBJECT_CLASS = new ObjectClass("User");
+    public static final String USER_OBJECT_CLASS_PREFIX = "User_";
 
     private static final Log LOGGER = Log.getLog(Auth0UserHandler.class);
+
+    private static final String SMS_CONNECTION = "sms";
 
     // Unique and unchangeable
     // Used as __NAME__ by configuration
@@ -147,31 +148,28 @@ public class Auth0UserHandler {
             ATTR_GIVEN_NAME
     ).collect(Collectors.toSet());
 
-    public static final Set<String> ALLOWED_NAME_ATTRS = Stream.of(
-            ATTR_EMAIL,
-            ATTR_PHONE_NUMBER,
-            ATTR_USERNAME,
-            ATTR_USER_ID
-    ).collect(Collectors.toCollection(LinkedHashSet::new));
-
     private final Auth0Configuration configuration;
     private final Auth0Client client;
     private final Auth0AssociationHandler associationHandler;
     private final Map<String, AttributeInfo> schema;
+    private final String databaseConnection;
+    private final ObjectClass objectClass;
 
     public Auth0UserHandler(Auth0Configuration configuration, Auth0Client client,
-                            Map<String, AttributeInfo> schema) {
+                            Map<String, AttributeInfo> schema, String databaseConnection) {
         this.configuration = configuration;
         this.client = client;
         this.schema = schema;
+        this.databaseConnection = databaseConnection;
+        this.objectClass = new ObjectClass(USER_OBJECT_CLASS_PREFIX + databaseConnection);
         this.associationHandler = new Auth0AssociationHandler(configuration, client);
     }
 
-    public static ObjectClassInfo getSchema(Auth0Configuration config) {
-        LOGGER.ok("User: {0}");
+    public static ObjectClassInfo getSchema(Auth0Configuration config, String databaseConnection) {
+        LOGGER.ok("User: {0}", databaseConnection);
 
         ObjectClassInfoBuilder builder = new ObjectClassInfoBuilder();
-        builder.setType(USER_OBJECT_CLASS.getObjectClassValue());
+        builder.setType(USER_OBJECT_CLASS_PREFIX + databaseConnection);
 
         // __UID__
         builder.addAttributeInfo(
@@ -187,19 +185,14 @@ public class Auth0UserHandler {
         // CaseSensitive
         AttributeInfoBuilder usernameBuilder = AttributeInfoBuilder.define(Name.NAME)
                 .setRequired(true);
-        String usernameAttr = config.getUsernameAttribute();
-        usernameBuilder.setNativeName(usernameAttr);
-        if (usernameAttr.equals(ATTR_USER_ID)) {
-            // Unchangeable if user_id is used as __NAME__
-            usernameBuilder.setUpdateable(true);
+        if (databaseConnection.equals(SMS_CONNECTION)) {
+            usernameBuilder.setNativeName(ATTR_PHONE_NUMBER);
+            builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_EMAIL).build());
+        } else {
+            usernameBuilder.setNativeName(ATTR_EMAIL);
+            builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_PHONE_NUMBER).build());
         }
         builder.addAttributeInfo(usernameBuilder.build());
-
-        ALLOWED_NAME_ATTRS.stream()
-                .filter(attr -> !attr.equals(usernameAttr) && !attr.equals(ATTR_USER_ID))
-                .forEach(attr -> {
-                    builder.addAttributeInfo(AttributeInfoBuilder.define(attr).build());
-                });
 
         // __ENABLE__ attribute
         builder.addAttributeInfo(OperationalAttributeInfos.ENABLE);
@@ -233,8 +226,10 @@ public class Auth0UserHandler {
                 .build());
 
         // Metadata
+        // Read-only because the connection is resolved by objectClass
         builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_CONNECTION)
-                .setRequired(true)
+                .setCreateable(false)
+                .setUpdateable(false)
                 .build());
         builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_IDENTITIES)
                 .setCreateable(false)
@@ -295,11 +290,6 @@ public class Auth0UserHandler {
         return userSchemaInfo;
     }
 
-
-    private static boolean isNameAttribute(Auth0Configuration configuration, String attrName) {
-        return configuration.getUsernameAttribute().equals(attrName);
-    }
-
     /**
      * The spec:
      * https://auth0.com/docs/api/management/v2/#!/Users/post_users
@@ -310,6 +300,8 @@ public class Auth0UserHandler {
      */
     public Uid createUser(Set<Attribute> attributes) throws Auth0Exception {
         User newUser = new User();
+        newUser.setConnection(databaseConnection);
+
         List<Object> roles = null;
         List<Object> orgs = null;
         List<Object> orgRoles = null;
@@ -318,12 +310,10 @@ public class Auth0UserHandler {
         for (Attribute attr : attributes) {
             // __NAME__
             if (attr.getName().equals(Name.NAME)) {
-                if (isNameAttribute(configuration, ATTR_EMAIL)) {
-                    newUser.setEmail(AttributeUtil.getAsStringValue(attr));
-                } else if (isNameAttribute(configuration, ATTR_PHONE_NUMBER)) {
+                if (isSMS()) {
                     newUser.setPhoneNumber(AttributeUtil.getAsStringValue(attr));
-                } else if (isNameAttribute(configuration, ATTR_USERNAME)) {
-                    newUser.setUsername(AttributeUtil.getAsStringValue(attr));
+                } else {
+                    newUser.setEmail(AttributeUtil.getAsStringValue(attr));
                 }
             }
 
@@ -368,9 +358,6 @@ public class Auth0UserHandler {
             // Metadata
             else if (attr.getName().equals(OperationalAttributes.ENABLE_NAME)) {
                 newUser.setBlocked(!AttributeUtil.getBooleanValue(attr));
-
-            } else if (attr.getName().equals(ATTR_CONNECTION)) {
-                newUser.setConnection(AttributeUtil.getAsStringValue(attr));
 
             } else if (attr.getName().equals(OperationalAttributes.PASSWORD_NAME)) {
                 AttributeUtil.getGuardedStringValue(attr).access(c -> {
@@ -426,6 +413,10 @@ public class Auth0UserHandler {
      */
     public Set<AttributeDelta> updateDelta(Uid uid, Set<AttributeDelta> modifications, OperationOptions options) throws Auth0Exception {
         User modifyUser = new User();
+        // If we are updating email, email_verified, phone_number, phone_verified,
+        // username or password of a secondary identity, we need to specify the connection property too.
+        modifyUser.setConnection(databaseConnection);
+
         List<Object> rolesToAdd = null;
         List<Object> rolesToRemove = null;
         List<Object> orgsToAdd = null;
@@ -443,12 +434,10 @@ public class Auth0UserHandler {
 
             // __NAME__
             else if (delta.getName().equals(Name.NAME)) {
-                if (isNameAttribute(configuration, ATTR_EMAIL)) {
-                    modifyUser.setEmail(AttributeDeltaUtil.getAsStringValue(delta));
-                } else if (isNameAttribute(configuration, ATTR_PHONE_NUMBER)) {
+                if (isSMS()) {
                     modifyUser.setPhoneNumber(AttributeDeltaUtil.getAsStringValue(delta));
-                } else if (isNameAttribute(configuration, ATTR_USERNAME)) {
-                    modifyUser.setUsername(AttributeDeltaUtil.getAsStringValue(delta));
+                } else {
+                    modifyUser.setEmail(AttributeDeltaUtil.getAsStringValue(delta));
                 }
             }
 
@@ -491,9 +480,6 @@ public class Auth0UserHandler {
 
             } else if (delta.getName().equals(ATTR_BLOCKED)) {
                 modifyUser.setBlocked(AttributeDeltaUtil.getBooleanValue(delta));
-
-            } else if (delta.getName().equals(ATTR_CONNECTION)) {
-                modifyUser.setConnection(AttributeDeltaUtil.getAsStringValue(delta));
             }
 
             // Metadata
@@ -559,7 +545,8 @@ public class Auth0UserHandler {
         client.deleteUser(uid);
     }
 
-    public void getUsers(Auth0Filter filter, ResultsHandler resultsHandler, OperationOptions options) throws Auth0Exception {
+    public void getUsers(Auth0Filter filter, ResultsHandler resultsHandler, OperationOptions options) throws
+            Auth0Exception {
         // Create full attributesToGet by RETURN_DEFAULT_ATTRIBUTES + ATTRIBUTES_TO_GET
         Set<String> attributesToGet = createFullAttributesToGet(schema, options);
         boolean allowPartialAttributeValues = shouldAllowPartialAttributeValues(options);
@@ -567,10 +554,10 @@ public class Auth0UserHandler {
         if (filter != null) {
             if (filter.isByName()) {
                 // Filter by __NANE__
-                if (isNameAttribute(configuration, ATTR_EMAIL)) {
-                    getUserByEmail(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
+                if (isSMS()) {
+                    getUserByPhoneNumber(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
                 } else {
-                    getUserByNameAttr(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
+                    getUserByEmail(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
                 }
             } else {
                 // Filter by __UID__
@@ -584,28 +571,31 @@ public class Auth0UserHandler {
         client.getUsers(userFilter, options, (user) -> resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues)));
     }
 
-    private void getUserByUid(String userId, ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
+    private void getUserByUid(String userId, ResultsHandler resultsHandler, Set<String> attributesToGet,
+                              boolean allowPartialAttributeValues) throws Auth0Exception {
         UserFilter filter = applyFieldsFilter(configuration, attributesToGet, new UserFilter());
         User user = client.getUserByUid(userId, filter);
 
         resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues));
     }
 
-    private void getUserByNameAttr(String attrValue, ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
+    private void getUserByPhoneNumber(String attrValue, ResultsHandler resultsHandler, Set<String> attributesToGet,
+                                      boolean allowPartialAttributeValues) throws Auth0Exception {
         attrValue = attrValue.replace("\"", "\\\"");
         UserFilter filter = new UserFilter()
                 .withPage(0, 2)
-                .withQuery(configuration.getUsernameAttribute() + ":\"" + attrValue + "\"");
+                .withQuery("phone_number:\"" + attrValue + "\"");
         filter = applyFieldsFilter(configuration, attributesToGet, filter);
 
-        List<User> response = client.getUserByNameAttr(attrValue, filter);
+        List<User> response = client.getUsersByFilter(filter);
 
         for (User user : response) {
             resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues));
         }
     }
 
-    private void getUserByEmail(String email, ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
+    private void getUserByEmail(String email, ResultsHandler resultsHandler, Set<String> attributesToGet,
+                                boolean allowPartialAttributeValues) throws Auth0Exception {
         FieldsFilter filter = applyFieldsFilter(configuration, attributesToGet, new FieldsFilter());
         List<User> response = client.getUserByEmail(email, filter);
 
@@ -614,8 +604,9 @@ public class Auth0UserHandler {
         }
     }
 
-    private ConnectorObject toConnectorObject(User user, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
-        ConnectorObjectBuilderWrapper builderWrapper = new ConnectorObjectBuilderWrapper(attributesToGet, USER_OBJECT_CLASS);
+    private ConnectorObject toConnectorObject(User user, Set<String> attributesToGet,
+                                              boolean allowPartialAttributeValues) throws Auth0Exception {
+        ConnectorObjectBuilderWrapper builderWrapper = new ConnectorObjectBuilderWrapper(attributesToGet, objectClass);
 
         // Always returns "user_id"
         builderWrapper.applyUid(user.getId());
@@ -629,30 +620,15 @@ public class Auth0UserHandler {
         builderWrapper.apply(ATTR_LOGINS_COUNT, user.getLoginsCount());
 
         // __NAME__
-        if (isNameAttribute(configuration, ATTR_EMAIL)) {
-            builderWrapper.applyName(user.getEmail());
-        } else if (isNameAttribute(configuration, ATTR_PHONE_NUMBER)) {
+        if (isSMS()) {
             builderWrapper.applyName(user.getPhoneNumber());
-        } else if (isNameAttribute(configuration, ATTR_USERNAME)) {
-            builderWrapper.applyName(user.getUsername());
+            builderWrapper.apply(ATTR_EMAIL, user.getEmail());
         } else {
-            builderWrapper.applyName(user.getId());
+            builderWrapper.applyName(user.getEmail());
+            builderWrapper.apply(ATTR_PHONE_NUMBER, user.getPhoneNumber());
         }
 
         // Standard
-        ALLOWED_NAME_ATTRS.stream()
-                .filter(attr -> !attr.equals(configuration.getUsernameAttribute()) && !attr.equals(ATTR_USER_ID))
-                .forEach(attr -> {
-                    if (attr.equals(ATTR_EMAIL)) {
-                        builderWrapper.apply(attr, user.getEmail());
-                    }
-                    if (attr.equals(ATTR_PHONE_NUMBER)) {
-                        builderWrapper.apply(attr, user.getPhoneNumber());
-                    }
-                    if (attr.equals(ATTR_USERNAME)) {
-                        builderWrapper.apply(attr, user.getUsername());
-                    }
-                });
         builderWrapper.apply(ATTR_EMAIL_VERIFIED, user.isEmailVerified());
         builderWrapper.apply(ATTR_PHONE_VERIFIED, user.isPhoneVerified());
         builderWrapper.apply(ATTR_PICTURE, user.getPicture());
@@ -712,14 +688,14 @@ public class Auth0UserHandler {
         return builderWrapper.build();
     }
 
-    private static <T extends FieldsFilter> T applyFieldsFilter(Auth0Configuration configuration, Set<String> attributesToGet, T filter) {
+    private <T extends FieldsFilter> T applyFieldsFilter(Auth0Configuration configuration, Set<String> attributesToGet, T filter) {
         if (!attributesToGet.isEmpty()) {
             for (String attr : attributesToGet) {
                 if (ALLOWED_FIELDS_SET.contains(attr)) {
                     filter.withFields(attr, true);
                 } else {
                     if (attr.equals(Name.NAME)) {
-                        if (isNameAttribute(configuration, ATTR_PHONE_NUMBER)) {
+                        if (isSMS()) {
                             filter.withFields(ATTR_PHONE_NUMBER, true);
                         } else {
                             filter.withFields(ATTR_EMAIL, true);
@@ -734,5 +710,9 @@ public class Auth0UserHandler {
             }
         }
         return filter;
+    }
+
+    private boolean isSMS() {
+        return databaseConnection.equals("sms");
     }
 }

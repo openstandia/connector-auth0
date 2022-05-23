@@ -33,7 +33,7 @@ class SchemaTest extends AbstractTest {
         assertNotNull(schema);
         assertEquals(3, schema.getObjectClassInfo().size());
 
-        Optional<ObjectClassInfo> user = schema.getObjectClassInfo().stream().filter(o -> o.is("User")).findFirst();
+        Optional<ObjectClassInfo> user = schema.getObjectClassInfo().stream().filter(o -> o.getType().startsWith("User_")).findFirst();
         Optional<ObjectClassInfo> role = schema.getObjectClassInfo().stream().filter(o -> o.is("Role")).findFirst();
         Optional<ObjectClassInfo> organization = schema.getObjectClassInfo().stream().filter(o -> o.is("Organization")).findFirst();
 

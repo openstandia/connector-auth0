@@ -177,12 +177,8 @@ public class Auth0Client {
         });
     }
 
-    public List<User> getUserByNameAttr(String attrValue, UserFilter filter) throws Auth0Exception {
+    public List<User> getUsersByFilter(UserFilter filter) throws Auth0Exception {
         return withAuth(() -> {
-            String escaped = attrValue.replace("\"", "\\\"");
-            filter.withPage(0, 2)
-                    .withQuery(configuration.getUsernameAttribute() + ":\"" + escaped + "\"");
-
             Request<UsersPage> request = internalClient.users().list(filter);
             UsersPage response = request.execute();
             return response.getItems();

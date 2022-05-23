@@ -16,9 +16,11 @@
 package jp.openstandia.connector.auth0.testutil;
 
 import jp.openstandia.connector.auth0.Auth0Configuration;
+import jp.openstandia.connector.auth0.Auth0UserHandler;
 import org.identityconnectors.framework.api.APIConfiguration;
 import org.identityconnectors.framework.api.ConnectorFacade;
 import org.identityconnectors.framework.api.ConnectorFacadeFactory;
+import org.identityconnectors.framework.common.objects.ObjectClass;
 import org.identityconnectors.test.common.TestHelpers;
 import org.junit.jupiter.api.BeforeEach;
 
@@ -28,6 +30,8 @@ public abstract class AbstractTest {
 
     protected ConnectorFacade connector;
     protected MockClient mockClient;
+
+    protected ObjectClass DEFAULT_USER_OBJECT_CLASS = new ObjectClass(Auth0UserHandler.USER_OBJECT_CLASS_PREFIX + "Username-Password-Authentication");
 
     protected Auth0Configuration newConfiguration() {
         Auth0Configuration conf = new Auth0Configuration();

@@ -16,11 +16,8 @@
 package jp.openstandia.connector.auth0;
 
 import org.identityconnectors.common.security.GuardedString;
-import org.identityconnectors.framework.common.exceptions.ConfigurationException;
 import org.identityconnectors.framework.spi.AbstractConfiguration;
 import org.identityconnectors.framework.spi.ConfigurationProperty;
-
-import java.util.stream.Collectors;
 
 public class Auth0Configuration extends AbstractConfiguration {
 
@@ -34,8 +31,8 @@ public class Auth0Configuration extends AbstractConfiguration {
     private int httpProxyPort;
     private String httpProxyUser;
     private GuardedString httpProxyPassword;
-    private String usernameAttribute = "email";
     private Integer defaultQueryPageSize = 50;
+    private String[] databaseConnection = new String[]{"Username-Password-Authentication"};
 
     @ConfigurationProperty(
             order = 1,
@@ -80,7 +77,21 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 3,
+            order = 4,
+            displayMessageKey = "Database Connections",
+            helpMessageKey = "Set database connections. Default: Username-Password-Authentication",
+            required = true,
+            confidential = false)
+    public String[] getDatabaseConnection() {
+        return databaseConnection;
+    }
+
+    public void setDatabaseConnection(String[] databaseConnection) {
+        this.databaseConnection = databaseConnection;
+    }
+
+    @ConfigurationProperty(
+            order = 10,
             displayMessageKey = "Connection Timeout (in seconds)",
             helpMessageKey = "Connection timeout when connecting to Auth0. (Default: 10)",
             required = false,
@@ -94,7 +105,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 4,
+            order = 11,
             displayMessageKey = "Read Timeout (in seconds)",
             helpMessageKey = "Read timeout when fetching data from Auth0. (Default: 10)",
             required = false,
@@ -108,7 +119,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 5,
+            order = 12,
             displayMessageKey = "Max Retries",
             helpMessageKey = "Sets the maximum number of consecutive retries for Auth0 Management API requests that fail due to rate-limits being reached. (Default: 3)",
             required = false,
@@ -122,7 +133,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 6,
+            order = 13,
             displayMessageKey = "HTTP Proxy Host",
             helpMessageKey = "Hostname for the HTTP Proxy",
             required = false,
@@ -136,7 +147,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 7,
+            order = 14,
             displayMessageKey = "HTTP Proxy Port",
             helpMessageKey = "Port for the HTTP Proxy",
             required = false,
@@ -150,7 +161,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 8,
+            order = 15,
             displayMessageKey = "HTTP Proxy User",
             helpMessageKey = "Username for the HTTP Proxy Authentication",
             required = false,
@@ -164,7 +175,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 9,
+            order = 16,
             displayMessageKey = "HTTP Proxy Password",
             helpMessageKey = "Password for the HTTP Proxy Authentication",
             required = false,
@@ -178,21 +189,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 10,
-            displayMessageKey = "Username Attribute",
-            helpMessageKey = "Set attribute name for the username. Default: email",
-            required = false,
-            confidential = false)
-    public String getUsernameAttribute() {
-        return usernameAttribute;
-    }
-
-    public void setUsernameAttribute(String usernameAttribute) {
-        this.usernameAttribute = usernameAttribute;
-    }
-
-    @ConfigurationProperty(
-            order = 10,
+            order = 17,
             displayMessageKey = "Default Query Page Size",
             helpMessageKey = "Set default query page size. Default: 50",
             required = false,
@@ -207,9 +204,5 @@ public class Auth0Configuration extends AbstractConfiguration {
 
     @Override
     public void validate() {
-        if (Auth0UserHandler.ALLOWED_NAME_ATTRS.contains(this.usernameAttribute)) {
-            throw new ConfigurationException("Invalid Username Attribute. Allowed value: " +
-                    Auth0UserHandler.ALLOWED_NAME_ATTRS.stream().collect(Collectors.joining(", ")));
-        }
     }
 }

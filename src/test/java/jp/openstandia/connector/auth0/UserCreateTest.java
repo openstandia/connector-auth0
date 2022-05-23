@@ -46,7 +46,7 @@ class UserCreateTest extends AbstractTest {
         });
 
         // When
-        Uid uid = connector.create(Auth0UserHandler.USER_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
+        Uid uid = connector.create(DEFAULT_USER_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
 
         // Then
         assertEquals(userId, uid.getUidValue());
@@ -67,7 +67,6 @@ class UserCreateTest extends AbstractTest {
         String username = "foobar";
         boolean emailVerified = true;
         boolean phoneVerified = true;
-        String connection = "test-db";
 
         Set<Attribute> attrs = new HashSet<>();
         attrs.add(new Name(email));
@@ -82,7 +81,6 @@ class UserCreateTest extends AbstractTest {
         attrs.add(AttributeBuilder.build("username", username));
         attrs.add(AttributeBuilder.build("email_verified", emailVerified));
         attrs.add(AttributeBuilder.build("phone_verified", phoneVerified));
-        attrs.add(AttributeBuilder.build("connection", connection));
 
         AtomicReference<User> created = new AtomicReference<User>();
         mockClient.createUser = ((user) -> {
@@ -92,7 +90,7 @@ class UserCreateTest extends AbstractTest {
         });
 
         // When
-        Uid uid = connector.create(Auth0UserHandler.USER_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
+        Uid uid = connector.create(DEFAULT_USER_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
 
         // Then
         assertEquals(userId, uid.getUidValue());
@@ -110,7 +108,7 @@ class UserCreateTest extends AbstractTest {
         assertEquals(username, newUser.getUsername());
         assertEquals(emailVerified, newUser.isEmailVerified());
         assertEquals(phoneVerified, newUser.isPhoneVerified());
-        assertEquals(connection, getString(newUser, "connection"));
+        assertEquals("Username-Password-Authentication", getString(newUser, "connection"));
     }
 
     @Test
@@ -128,7 +126,7 @@ class UserCreateTest extends AbstractTest {
 
         // When
         AlreadyExistsException e = assertThrows(AlreadyExistsException.class, () -> {
-            Uid uid = connector.create(Auth0UserHandler.USER_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
+            Uid uid = connector.create(DEFAULT_USER_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
         });
 
         // Then
@@ -154,7 +152,7 @@ class UserCreateTest extends AbstractTest {
         });
 
         // When
-        Uid uid = connector.create(Auth0UserHandler.USER_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
+        Uid uid = connector.create(DEFAULT_USER_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
 
         // Then
         assertEquals(userId, uid.getUidValue());

@@ -47,7 +47,7 @@ class UserUpdateTest extends AbstractTest {
         });
 
         // When
-        Set<AttributeDelta> result = connector.updateDelta(Auth0UserHandler.USER_OBJECT_CLASS, new Uid(userId), delta, new OperationOptionsBuilder().build());
+        Set<AttributeDelta> result = connector.updateDelta(DEFAULT_USER_OBJECT_CLASS, new Uid(userId), delta, new OperationOptionsBuilder().build());
 
         // Then
         assertNull(result);

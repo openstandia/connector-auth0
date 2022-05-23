@@ -35,7 +35,7 @@ import java.util.Set;
 
 import static jp.openstandia.connector.auth0.Auth0OrganizationHandler.ORGANIZATION_OBJECT_CLASS;
 import static jp.openstandia.connector.auth0.Auth0RoleHandler.ROLE_OBJECT_CLASS;
-import static jp.openstandia.connector.auth0.Auth0UserHandler.USER_OBJECT_CLASS;
+import static jp.openstandia.connector.auth0.Auth0UserHandler.USER_OBJECT_CLASS_PREFIX;
 
 @ConnectorClass(configurationClass = Auth0Configuration.class, displayNameKey = "Auth0 Connector")
 public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaOp, DeleteOp, SchemaOp, TestOp, SearchOp<Auth0Filter>, InstanceNameAware {
@@ -45,9 +45,7 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
     protected Auth0Configuration configuration;
     protected Auth0Client client;
 
-    private Map<String, AttributeInfo> userSchemaMap;
-    private Map<String, AttributeInfo> roleSchemaMap;
-    private Map<String, AttributeInfo> organizationSchemaMap;
+    private Map<String, Map<String, AttributeInfo>> schemaMap;
 
     private String instanceName;
 
@@ -77,8 +75,18 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
         try {
             SchemaBuilder schemaBuilder = new SchemaBuilder(Auth0Connector.class);
 
-            ObjectClassInfo userSchemaInfo = Auth0UserHandler.getSchema(configuration);
-            schemaBuilder.defineObjectClass(userSchemaInfo);
+            Map<String, Map<String, AttributeInfo>> schema = new HashMap<>();
+
+            for (String databaseConnection : configuration.getDatabaseConnection()) {
+                ObjectClassInfo userSchemaInfo = Auth0UserHandler.getSchema(configuration, databaseConnection);
+                schemaBuilder.defineObjectClass(userSchemaInfo);
+
+                Map<String, AttributeInfo> userSchemaMap = new HashMap<>();
+                for (AttributeInfo a : userSchemaInfo.getAttributeInfo()) {
+                    userSchemaMap.put(a.getName(), a);
+                }
+                schema.put(userSchemaInfo.getType(), Collections.unmodifiableMap(userSchemaMap));
+            }
 
             ObjectClassInfo roleSchemaInfo = Auth0RoleHandler.getSchema(configuration);
             schemaBuilder.defineObjectClass(roleSchemaInfo);
@@ -89,20 +97,20 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
             schemaBuilder.defineOperationOption(OperationOptionInfoBuilder.buildAttributesToGet(), SearchOp.class);
             schemaBuilder.defineOperationOption(OperationOptionInfoBuilder.buildReturnDefaultAttributes(), SearchOp.class);
 
-            userSchemaMap = new HashMap<>();
-            userSchemaInfo.getAttributeInfo().stream()
-                    .forEach(a -> userSchemaMap.put(a.getName(), a));
-            userSchemaMap = Collections.unmodifiableMap(userSchemaMap);
 
-            roleSchemaMap = new HashMap<>();
-            roleSchemaInfo.getAttributeInfo().stream()
-                    .forEach(a -> roleSchemaMap.put(a.getName(), a));
-            roleSchemaMap = Collections.unmodifiableMap(roleSchemaMap);
+            Map<String, AttributeInfo> roleSchemaMap = new HashMap<>();
+            for (AttributeInfo a : roleSchemaInfo.getAttributeInfo()) {
+                roleSchemaMap.put(a.getName(), a);
+            }
+            schema.put(roleSchemaInfo.getType(), Collections.unmodifiableMap(roleSchemaMap));
 
-            organizationSchemaMap = new HashMap<>();
-            organizationSchemaInfo.getAttributeInfo().stream()
-                    .forEach(a -> organizationSchemaMap.put(a.getName(), a));
-            organizationSchemaMap = Collections.unmodifiableMap(organizationSchemaMap);
+            Map<String, AttributeInfo> organizationSchemaMap = new HashMap<>();
+            for (AttributeInfo a : organizationSchemaInfo.getAttributeInfo()) {
+                organizationSchemaMap.put(a.getName(), a);
+            }
+            schema.put(organizationSchemaInfo.getType(), Collections.unmodifiableMap(organizationSchemaMap));
+
+            this.schemaMap = Collections.unmodifiableMap(schema);
 
             return schemaBuilder.build();
 
@@ -111,28 +119,12 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
         }
     }
 
-    private Map<String, AttributeInfo> getUserSchemaMap() {
+    private Map<String, AttributeInfo> getSchemaMap(ObjectClass objectClass) {
         // Load schema map if it's not loaded yet
-        if (userSchemaMap == null) {
+        if (schemaMap == null) {
             schema();
         }
-        return userSchemaMap;
-    }
-
-    private Map<String, AttributeInfo> getRoleSchemaMap() {
-        // Load schema map if it's not loaded yet
-        if (roleSchemaMap == null) {
-            schema();
-        }
-        return roleSchemaMap;
-    }
-
-    private Map<String, AttributeInfo> getOrganizationSchemaMap() {
-        // Load schema map if it's not loaded yet
-        if (organizationSchemaMap == null) {
-            schema();
-        }
-        return organizationSchemaMap;
+        return schemaMap.get(objectClass.getObjectClassValue());
     }
 
     @Override
@@ -147,16 +139,16 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
         }
 
         try {
-            if (objectClass.equals(USER_OBJECT_CLASS)) {
-                Auth0UserHandler userHandler = new Auth0UserHandler(configuration, client, getUserSchemaMap());
+            if (objectClass.getObjectClassValue().startsWith(USER_OBJECT_CLASS_PREFIX)) {
+                Auth0UserHandler userHandler = new Auth0UserHandler(configuration, client, getSchemaMap(objectClass), resolveDatabaseConnection(objectClass));
                 return userHandler.createUser(createAttributes);
 
             } else if (objectClass.equals(ROLE_OBJECT_CLASS)) {
-                Auth0RoleHandler roleHandler = new Auth0RoleHandler(configuration, client, getRoleSchemaMap());
+                Auth0RoleHandler roleHandler = new Auth0RoleHandler(configuration, client, getSchemaMap(objectClass));
                 return roleHandler.createRole(createAttributes);
 
             } else if (objectClass.equals(ORGANIZATION_OBJECT_CLASS)) {
-                Auth0OrganizationHandler organizationHandler = new Auth0OrganizationHandler(configuration, client, getOrganizationSchemaMap());
+                Auth0OrganizationHandler organizationHandler = new Auth0OrganizationHandler(configuration, client, getSchemaMap(objectClass));
                 return organizationHandler.create(createAttributes);
 
             } else {
@@ -167,19 +159,24 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
         }
     }
 
+    private String resolveDatabaseConnection(ObjectClass objectClass) {
+        String[] split = objectClass.getObjectClassValue().split("_");
+        return split[1];
+    }
+
     @Override
     public Set<AttributeDelta> updateDelta(ObjectClass objectClass, Uid uid, Set<AttributeDelta> modifications, OperationOptions options) {
         try {
-            if (objectClass.equals(USER_OBJECT_CLASS)) {
-                Auth0UserHandler userHandler = new Auth0UserHandler(configuration, client, getUserSchemaMap());
+            if (objectClass.getObjectClassValue().startsWith(USER_OBJECT_CLASS_PREFIX)) {
+                Auth0UserHandler userHandler = new Auth0UserHandler(configuration, client, getSchemaMap(objectClass), resolveDatabaseConnection(objectClass));
                 return userHandler.updateDelta(uid, modifications, options);
 
             } else if (objectClass.equals(ROLE_OBJECT_CLASS)) {
-                Auth0RoleHandler roleHandler = new Auth0RoleHandler(configuration, client, getRoleSchemaMap());
+                Auth0RoleHandler roleHandler = new Auth0RoleHandler(configuration, client, getSchemaMap(objectClass));
                 return roleHandler.updateDelta(uid, modifications, options);
 
             } else if (objectClass.equals(ORGANIZATION_OBJECT_CLASS)) {
-                Auth0OrganizationHandler organizationHandler = new Auth0OrganizationHandler(configuration, client, getOrganizationSchemaMap());
+                Auth0OrganizationHandler organizationHandler = new Auth0OrganizationHandler(configuration, client, getSchemaMap(objectClass));
                 return organizationHandler.updateDelta(uid, modifications, options);
 
             } else {
@@ -197,16 +194,16 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
         }
 
         try {
-            if (objectClass.equals(USER_OBJECT_CLASS)) {
-                Auth0UserHandler userHandler = new Auth0UserHandler(configuration, client, getUserSchemaMap());
+            if (objectClass.getObjectClassValue().startsWith(USER_OBJECT_CLASS_PREFIX)) {
+                Auth0UserHandler userHandler = new Auth0UserHandler(configuration, client, getSchemaMap(objectClass), resolveDatabaseConnection(objectClass));
                 userHandler.deleteUser(uid, options);
 
             } else if (objectClass.equals(ROLE_OBJECT_CLASS)) {
-                Auth0RoleHandler roleHandler = new Auth0RoleHandler(configuration, client, getRoleSchemaMap());
+                Auth0RoleHandler roleHandler = new Auth0RoleHandler(configuration, client, getSchemaMap(objectClass));
                 roleHandler.deleteRole(uid, options);
 
             } else if (objectClass.equals(ORGANIZATION_OBJECT_CLASS)) {
-                Auth0OrganizationHandler organizationHandler = new Auth0OrganizationHandler(configuration, client, getOrganizationSchemaMap());
+                Auth0OrganizationHandler organizationHandler = new Auth0OrganizationHandler(configuration, client, getSchemaMap(objectClass));
                 organizationHandler.delete(uid, options);
 
             } else {
@@ -225,16 +222,16 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
     @Override
     public void executeQuery(ObjectClass objectClass, Auth0Filter filter, ResultsHandler resultsHandler, OperationOptions options) {
         try {
-            if (objectClass.equals(USER_OBJECT_CLASS)) {
-                Auth0UserHandler userHandler = new Auth0UserHandler(configuration, client, getUserSchemaMap());
+            if (objectClass.getObjectClassValue().startsWith(USER_OBJECT_CLASS_PREFIX)) {
+                Auth0UserHandler userHandler = new Auth0UserHandler(configuration, client, getSchemaMap(objectClass), resolveDatabaseConnection(objectClass));
                 userHandler.getUsers(filter, resultsHandler, options);
 
             } else if (objectClass.equals(ROLE_OBJECT_CLASS)) {
-                Auth0RoleHandler roleHandler = new Auth0RoleHandler(configuration, client, getRoleSchemaMap());
+                Auth0RoleHandler roleHandler = new Auth0RoleHandler(configuration, client, getSchemaMap(objectClass));
                 roleHandler.getRoles(filter, resultsHandler, options);
 
             } else if (objectClass.equals(ORGANIZATION_OBJECT_CLASS)) {
-                Auth0OrganizationHandler organizationHandler = new Auth0OrganizationHandler(configuration, client, getOrganizationSchemaMap());
+                Auth0OrganizationHandler organizationHandler = new Auth0OrganizationHandler(configuration, client, getSchemaMap(objectClass));
                 organizationHandler.query(filter, resultsHandler, options);
 
             } else {
