@@ -17,7 +17,7 @@ package jp.openstandia.connector.auth0.testutil;
 
 import jp.openstandia.connector.auth0.Auth0Connector;
 
-public class LocalCognitoUserPoolConnector extends Auth0Connector {
+public class LocalAuth0Connector extends Auth0Connector {
     @Override
     protected void initClient() {
         client = MockClient.instance();

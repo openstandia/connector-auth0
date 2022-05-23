@@ -15,19 +15,16 @@
  */
 package jp.openstandia.connector.auth0;
 
+import com.auth0.json.mgmt.users.User;
 import jp.openstandia.connector.auth0.testutil.AbstractTest;
-import org.identityconnectors.common.CollectionUtil;
 import org.identityconnectors.framework.common.exceptions.AlreadyExistsException;
 import org.identityconnectors.framework.common.objects.*;
 import org.junit.jupiter.api.Test;
-import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
 
-import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.function.Function;
+import java.util.concurrent.atomic.AtomicReference;
 
-import static jp.openstandia.connector.auth0.testutil.MockClient.buildSuccess;
 import static jp.openstandia.connector.auth0.testutil.MockClient.userExistsError;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -36,99 +33,96 @@ class UserCreateTest extends AbstractTest {
     @Test
     void createUser() {
         // Given
-        String username = "foo";
+        String userId = "auth0|61c5cc0078d9e300758160d6";
         String email = "foo@example.com";
-        String sub = "00000000-0000-0000-0000-000000000001";
 
         Set<Attribute> attrs = new HashSet<>();
-        attrs.add(new Name(username));
-        attrs.add(AttributeBuilder.build("email", CollectionUtil.newSet(email)));
-
-        mockClient.adminCreateUser((request) -> {
-            AdminCreateUserResponse.Builder builder = AdminCreateUserResponse.builder()
-                    .user(newUserType(sub, username, email));
-            return buildSuccess(builder, AdminCreateUserResponse.class);
-        });
-
-        // When
-        Uid uid = connector.create(Auth0UserHandler.USER_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
-
-        // Then
-        assertEquals(sub, uid.getUidValue());
-        assertEquals(username, uid.getNameHintValue());
-    }
-
-    @Test
-    void createUserWithDisabled() {
-        // Given
-        String username = "foo";
-        String email = "foo@example.com";
-        String sub = "00000000-0000-0000-0000-000000000001";
-
-        Set<Attribute> attrs = new HashSet<>();
-        attrs.add(new Name(username));
-        attrs.add(AttributeBuilder.build("email", CollectionUtil.newSet(email)));
-        attrs.add(AttributeBuilder.buildEnabled(false));
-
-        mockClient.adminCreateUser(request -> {
-            AdminCreateUserResponse.Builder builder = AdminCreateUserResponse.builder()
-                    .user(newUserType(sub, username, email));
-            return buildSuccess(builder, AdminCreateUserResponse.class);
-        });
-        mockClient.adminDisableUser(request -> {
-            return buildSuccess(AdminDisableUserResponse.builder(), AdminDisableUserResponse.class);
-        });
-
-        // When
-        Uid uid = connector.create(Auth0UserHandler.USER_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
-
-        // Then
-        assertEquals("00000000-0000-0000-0000-000000000001", uid.getUidValue());
-        assertEquals("foo", uid.getNameHintValue());
-    }
-
-    @Test
-    void createUserWithPassword() {
-        // Given
-        String username = "foo";
-        String email = "foo@example.com";
-        String sub = "00000000-0000-0000-0000-000000000001";
-
-        Set<Attribute> attrs = new HashSet<>();
-        attrs.add(new Name(username));
-        attrs.add(AttributeBuilder.build("email", CollectionUtil.newSet(email)));
+        attrs.add(new Name(email));
         attrs.add(AttributeBuilder.buildPassword("secret".toCharArray()));
 
-        mockClient.adminCreateUser(request -> {
-            AdminCreateUserResponse.Builder builder = AdminCreateUserResponse.builder()
-                    .user(newUserType(sub, username, email));
-            return buildSuccess(builder, AdminCreateUserResponse.class);
-        });
-        mockClient.adminSetUserPassword(request -> {
-            return buildSuccess(AdminSetUserPasswordResponse.builder(), AdminSetUserPasswordResponse.class);
+        mockClient.createUser = ((user) -> {
+            user.setId(userId);
+            return user;
         });
 
         // When
         Uid uid = connector.create(Auth0UserHandler.USER_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
 
         // Then
-        assertEquals("00000000-0000-0000-0000-000000000001", uid.getUidValue());
-        assertEquals("foo", uid.getNameHintValue());
+        assertEquals(userId, uid.getUidValue());
+        assertEquals(email, uid.getNameHintValue());
+    }
+
+    @Test
+    void createUserWithFullAttrs() {
+        // Given
+        String userId = "auth0|61c5cc0078d9e300758160d6";
+        String email = "foo@example.com";
+        String nickname = "foo";
+        String phoneNumber = "+817000000000";
+        String givenName = "Foo";
+        String familyName = "Bar";
+        String name = "Foo Bar";
+        String picture = "https://picture.example.com/foo";
+        String username = "foobar";
+        boolean emailVerified = true;
+        boolean phoneVerified = true;
+        String connection = "test-db";
+
+        Set<Attribute> attrs = new HashSet<>();
+        attrs.add(new Name(email));
+        attrs.add(AttributeBuilder.buildPassword("secret".toCharArray()));
+        attrs.add(AttributeBuilder.buildEnabled(true));
+        attrs.add(AttributeBuilder.build("nickname", nickname));
+        attrs.add(AttributeBuilder.build("phone_number", phoneNumber));
+        attrs.add(AttributeBuilder.build("given_name", givenName));
+        attrs.add(AttributeBuilder.build("family_name", familyName));
+        attrs.add(AttributeBuilder.build("name", name));
+        attrs.add(AttributeBuilder.build("picture", picture));
+        attrs.add(AttributeBuilder.build("username", username));
+        attrs.add(AttributeBuilder.build("email_verified", emailVerified));
+        attrs.add(AttributeBuilder.build("phone_verified", phoneVerified));
+        attrs.add(AttributeBuilder.build("connection", connection));
+
+        AtomicReference<User> created = new AtomicReference<User>();
+        mockClient.createUser = ((user) -> {
+            user.setId(userId);
+            created.set(user);
+            return user;
+        });
+
+        // When
+        Uid uid = connector.create(Auth0UserHandler.USER_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
+
+        // Then
+        assertEquals(userId, uid.getUidValue());
+        assertEquals(email, uid.getNameHintValue());
+
+        User newUser = created.get();
+        assertNotNull(newUser);
+        assertEquals(email, newUser.getEmail());
+        assertEquals(nickname, newUser.getNickname());
+        assertEquals(phoneNumber, newUser.getPhoneNumber());
+        assertEquals(givenName, newUser.getGivenName());
+        assertEquals(familyName, newUser.getFamilyName());
+        assertEquals(name, newUser.getName());
+        assertEquals(picture, newUser.getPicture());
+        assertEquals(username, newUser.getUsername());
+        assertEquals(emailVerified, newUser.isEmailVerified());
+        assertEquals(phoneVerified, newUser.isPhoneVerified());
+        assertEquals(connection, getString(newUser, "connection"));
     }
 
     @Test
     void createUserWithAlreadyExistsError() {
         // Given
-        String username = "foo";
         String email = "foo@example.com";
-        String sub = "00000000-0000-0000-0000-000000000001";
 
         Set<Attribute> attrs = new HashSet<>();
-        attrs.add(new Name(username));
-        attrs.add(AttributeBuilder.build("email", CollectionUtil.newSet(email)));
+        attrs.add(new Name(email));
         attrs.add(AttributeBuilder.buildPassword("secret".toCharArray()));
 
-        mockClient.adminCreateUser((Function<AdminCreateUserRequest, AdminCreateUserResponse>) request -> {
+        mockClient.createUser = ((user) -> {
             throw userExistsError();
         });
 
@@ -139,25 +133,5 @@ class UserCreateTest extends AbstractTest {
 
         // Then
         assertNotNull(e);
-    }
-
-    private UserType newUserType(String sub, String username, String email) {
-        return UserType.builder()
-                .username(username)
-                .enabled(true)
-                .userStatus(UserStatusType.FORCE_CHANGE_PASSWORD)
-                .userCreateDate(Instant.now())
-                .userLastModifiedDate(Instant.now())
-                .attributes(
-                        AttributeType.builder()
-                                .name("sub")
-                                .value(sub)
-                                .build(),
-                        AttributeType.builder()
-                                .name("email")
-                                .value(email)
-                                .build()
-                )
-                .build();
     }
 }

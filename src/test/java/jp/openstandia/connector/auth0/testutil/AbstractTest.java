@@ -22,6 +22,8 @@ import org.identityconnectors.framework.api.ConnectorFacadeFactory;
 import org.identityconnectors.test.common.TestHelpers;
 import org.junit.jupiter.api.BeforeEach;
 
+import java.lang.reflect.Field;
+
 public abstract class AbstractTest {
 
     protected ConnectorFacade connector;
@@ -29,13 +31,13 @@ public abstract class AbstractTest {
 
     protected Auth0Configuration newConfiguration() {
         Auth0Configuration conf = new Auth0Configuration();
-        conf.setDomain("testPool");
+        conf.setDomain("example.com");
         return conf;
     }
 
     protected ConnectorFacade newFacade() {
         ConnectorFacadeFactory factory = ConnectorFacadeFactory.getInstance();
-        APIConfiguration impl = TestHelpers.createTestConfiguration(LocalCognitoUserPoolConnector.class, newConfiguration());
+        APIConfiguration impl = TestHelpers.createTestConfiguration(LocalAuth0Connector.class, newConfiguration());
         impl.getResultsHandlerConfiguration().setEnableAttributesToGetSearchResultsHandler(false);
         impl.getResultsHandlerConfiguration().setEnableNormalizingResultsHandler(false);
         impl.getResultsHandlerConfiguration().setEnableFilteredResultsHandler(false);
@@ -47,5 +49,15 @@ public abstract class AbstractTest {
         connector = newFacade();
         mockClient = MockClient.instance();
         mockClient.init();
+    }
+
+    public static String getString(Object o, String fieldName) {
+        try {
+            Field f = o.getClass().getDeclaredField(fieldName);
+            f.setAccessible(true);
+            return (String) f.get(o);
+        } catch (IllegalAccessException | NoSuchFieldException e) {
+            throw new RuntimeException(e);
+        }
     }
 }

@@ -15,17 +15,14 @@
  */
 package jp.openstandia.connector.auth0;
 
+import com.auth0.exception.Auth0Exception;
+import com.auth0.json.mgmt.Permission;
+import com.auth0.json.mgmt.Role;
 import org.identityconnectors.common.logging.Log;
-import org.identityconnectors.framework.common.exceptions.AlreadyExistsException;
-import org.identityconnectors.framework.common.exceptions.InvalidAttributeValueException;
-import org.identityconnectors.framework.common.exceptions.RetryableException;
-import org.identityconnectors.framework.common.exceptions.UnknownUidException;
 import org.identityconnectors.framework.common.objects.*;
-import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
-import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
-import software.amazon.awssdk.services.cognitoidentityprovider.paginators.ListGroupsIterable;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static jp.openstandia.connector.auth0.Auth0Utils.*;
@@ -36,40 +33,74 @@ public class Auth0RoleHandler {
 
     private static final Log LOGGER = Log.getLog(Auth0RoleHandler.class);
 
-    // Unique and unchangeable within the user pool
+    // Unique and unchangeable
+    private static final String ATTR_ROLE_ID = "roleId";
+
+    // Unique and changeable
     private static final String ATTR_ROLE_NAME = "name";
 
     // Attributes
     private static final String ATTR_DESCRIPTION = "description";
 
-    private final Auth0Configuration configuration;
-    private final CognitoIdentityProviderClient client;
-    private final Auth0AssociationHandler userGroupHandler;
+    // Association
+    // Permissions are represented as the following JSON Object array.
+    // [
+    //   {
+    //     "resource_server_identifier": "https://myapi.example.com"
+    //     "permission_name": "read:foo"
+    //   },
+    //   {
+    //     "resource_server_identifier": "https://myapi.example.com"
+    //     "permission_name": "write:foo"
+    //   }
+    // ]
+    //
+    // Instead of it, we represent them as the string array in thins connector.
+    // [
+    //   "https://myapi.example.com#read:foo",
+    //   "https://myapi.example.com#write:foo"
+    // ]
+    //
+    private static final String ATTR_PERMISSIONS = "permissions";
 
-    public Auth0RoleHandler(Auth0Configuration configuration, CognitoIdentityProviderClient client) {
+    private final Auth0Configuration configuration;
+    private final Auth0Client client;
+    private final Map<String, AttributeInfo> schema;
+    private final Auth0AssociationHandler associationHandler;
+
+    public Auth0RoleHandler(Auth0Configuration configuration, Auth0Client client, Map<String, AttributeInfo> schema) {
         this.configuration = configuration;
         this.client = client;
-        this.userGroupHandler = new Auth0AssociationHandler(configuration, client);
+        this.schema = schema;
+        this.associationHandler = new Auth0AssociationHandler(configuration, client);
     }
 
-    public static ObjectClassInfo getGroupSchema(Auth0Configuration config) {
+    public static ObjectClassInfo getSchema(Auth0Configuration config) {
         ObjectClassInfoBuilder builder = new ObjectClassInfoBuilder();
         builder.setType(ROLE_OBJECT_CLASS.getObjectClassValue());
 
         // __UID__
         builder.addAttributeInfo(AttributeInfoBuilder.define(Uid.NAME)
                 .setRequired(true)
+                .setCreateable(false)
                 .setUpdateable(false)
-                .setNativeName(ATTR_ROLE_NAME)
+                .setNativeName(ATTR_ROLE_ID)
                 .build());
         // __NAME__
         builder.addAttributeInfo(AttributeInfoBuilder.define(Name.NAME)
                 .setRequired(true)
-                .setUpdateable(false)
+                .setSubtype(AttributeInfo.Subtypes.STRING_CASE_IGNORE)
                 .setNativeName(ATTR_ROLE_NAME)
                 .build());
 
+        // Standard Attributes
         builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_DESCRIPTION)
+                .build());
+
+        // Association
+        builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_PERMISSIONS)
+                .setMultiValued(true)
+                .setReturnedByDefault(false)
                 .build());
 
         ObjectClassInfo roleSchemaInfo = builder.build();
@@ -80,196 +111,95 @@ public class Auth0RoleHandler {
     }
 
     /**
-     * The spec for create a role:
+     * The spec:
      * https://auth0.com/docs/api/management/v2/#!/Roles/post_roles
      *
      * @param attributes
      * @return
-     * @throws AlreadyExistsException Object with the specified _NAME_ already exists.
-     *                                Or there is a similar violation in any of the object attributes that
-     *                                cannot be distinguished from AlreadyExists situation.
+     * @throws
      */
-    public Uid createRole(Set<Attribute> attributes) throws AlreadyExistsException {
-        if (attributes == null || attributes.isEmpty()) {
-            throw new InvalidAttributeValueException("attributes not provided or empty");
-        }
-        GroupModel newGroup = new GroupModel();
+    public Uid createRole(Set<Attribute> attributes) throws Auth0Exception {
+        Role newRole = new Role();
+        List<Object> permissions = null;
 
         for (Attribute attr : attributes) {
             if (attr.getName().equals(Name.NAME)) {
-                newGroup.applyGroupName(attr);
+                newRole.setName(AttributeUtil.getAsStringValue(attr));
 
             } else if (attr.getName().equals(ATTR_DESCRIPTION)) {
-                newGroup.applyDescription(attr);
+                newRole.setDescription(AttributeUtil.getAsStringValue(attr));
+
+            } else if (attr.getName().equals(ATTR_PERMISSIONS)) {
+                permissions = attr.getValue();
 
             } else {
-                invalidSchema(attr.getName());
+                throwInvalidSchema(attr.getName());
             }
         }
 
-        CreateGroupRequest request = CreateGroupRequest.builder()
-                .userPoolId(configuration.getDomain())
-                .groupName(newGroup.groupName)
-                .description(newGroup.description)
-                .precedence(newGroup.precedence)
-                .roleArn(newGroup.roleArn)
-                .build();
+        Role response = client.createRole(newRole);
 
-        CreateGroupResponse result = null;
-        try {
-            result = client.createGroup(request);
+        Uid newUid = new Uid(response.getId(), new Name(response.getName()));
 
-            checkCognitoResult(result, "CreateGroup");
-        } catch (GroupExistsException e) {
-            LOGGER.warn(e, "The group already exists when creating. uid: {0}", request.groupName());
-            throw new AlreadyExistsException("The group exists. GroupName: " + request.groupName(), e);
-        }
-
-        GroupType group = result.group();
-
-        // Caution! Don't include Name object in the Uid
-        // because it throws SchemaException with "No definition for ConnId NAME attribute found in definition crOCD
-        // ({http://midpoint.evolveum.com/xml/ns/public/resource/instance-3}Group)".
-        Uid newUid = new Uid(group.groupName());
+        // We need to call another API to add/remove permissions for this role.
+        // It means that we can't execute this operation as a single transaction.
+        // Therefore, Auth0 data may be inconsistent if below callings are failed.
+        // Although this connector doesn't handle this situation, IDM can retry the update to resolve this inconsistency.
+        associationHandler.addPermissionsToRole(newUid, permissions);
 
         return newUid;
     }
 
     /**
-     * The spec for UpdateGroup:
-     * https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_UpdateGroup.html
+     * The spec:
+     * https://auth0.com/docs/api/management/v2/#!/Roles/patch_roles_by_id
      *
      * @param uid
      * @param modifications
      * @param options
      * @return
      */
-    public Set<AttributeDelta> updateDelta(Uid uid, Set<AttributeDelta> modifications, OperationOptions options) {
-        GroupModel modifyGroup = new GroupModel();
+    public Set<AttributeDelta> updateDelta(Uid uid, Set<AttributeDelta> modifications, OperationOptions options) throws Auth0Exception {
+        Role patchRole = new Role();
+        List<Object> permissionsToAdd = null;
+        List<Object> permissionsToRemove = null;
 
         for (AttributeDelta delta : modifications) {
-            if (delta.getName().equals(ATTR_DESCRIPTION)) {
-                modifyGroup.applyDescription(delta);
+            if (delta.getName().equals(Name.NAME)) {
+                patchRole.setName(AttributeDeltaUtil.getAsStringValue(delta));
+
+            } else if (delta.getName().equals(ATTR_DESCRIPTION)) {
+                patchRole.setDescription(AttributeDeltaUtil.getAsStringValue(delta));
+
+            } else if (delta.getName().equals(ATTR_PERMISSIONS)) {
+                permissionsToAdd = delta.getValuesToAdd();
+                permissionsToRemove = delta.getValuesToRemove();
 
             } else {
-                invalidSchema(delta.getName());
+                throwInvalidSchema(delta.getName());
             }
         }
 
-        if (modifyGroup.description != null ||
-                modifyGroup.precedence != null ||
-                modifyGroup.roleArn != null) {
-            try {
-                UpdateGroupRequest request = UpdateGroupRequest.builder()
-                        .userPoolId(configuration.getDomain())
-                        .groupName(uid.getUidValue())
-                        .description(modifyGroup.description)
-                        .precedence(modifyGroup.precedence)
-                        .roleArn(modifyGroup.roleArn)
-                        .build();
+        client.updateRole(uid, patchRole);
 
-                UpdateGroupResponse result = client.updateGroup(request);
-
-                checkCognitoResult(result, "UpdateGroup");
-            } catch (ResourceNotFoundException e) {
-                LOGGER.warn("Not found group when updating. uid: {0}", uid);
-                throw new UnknownUidException(uid, ROLE_OBJECT_CLASS);
-            }
-        }
+        // We need to call another API to add/remove role for this user.
+        // It means that we can't execute this operation as a single transaction.
+        // Therefore, Auth0 data may be inconsistent if below callings are failed.
+        // Although this connector doesn't handle this situation, IDM can retry the update to resolve this inconsistency.
+        associationHandler.updatePermissionsToRole(uid, permissionsToAdd, permissionsToRemove);
 
         return null;
-    }
-
-    private class GroupModel {
-        String groupName;
-        String description;
-        Integer precedence;
-        String roleArn;
-        List<Object> addUsers;
-        List<Object> removeUsers;
-
-        public void applyGroupName(Attribute attr) {
-            this.groupName = AttributeUtil.getAsStringValue(attr);
-        }
-
-        void applyDescription(Attribute attr) {
-            this.description = AttributeUtil.getAsStringValue(attr);
-        }
-
-        void applyDescription(AttributeDelta delta) {
-            if (delta.getValuesToReplace().isEmpty()) {
-                // Try to remove Description by setting "".
-                // But it doesn't work currently due to Cognito limitation...?
-                this.description = "";
-            } else {
-                this.description = AttributeDeltaUtil.getAsStringValue(delta);
-            }
-        }
-
-        void applyPrecedence(Attribute attr) {
-            this.precedence = AttributeUtil.getIntegerValue(attr);
-        }
-
-        void applyPrecedence(AttributeDelta delta) {
-            if (delta.getValuesToReplace().isEmpty()) {
-                // Precedence is removed if we set 0
-                this.precedence = 0;
-            } else {
-                this.precedence = AttributeDeltaUtil.getIntegerValue(delta);
-            }
-        }
-
-        void applyRoleArn(Attribute attr) {
-            this.roleArn = AttributeUtil.getAsStringValue(attr);
-        }
-
-        void applyRoleArn(AttributeDelta delta) {
-            if (delta.getValuesToReplace().isEmpty()) {
-                // Try to remove RoleArn by setting "".
-                // But it doesn't work currently due to Cognito limitation...?
-                this.roleArn = "";
-            } else {
-                this.roleArn = AttributeDeltaUtil.getAsStringValue(delta);
-            }
-        }
-
-        void applyUsers(Attribute attr) {
-            this.addUsers.addAll(attr.getValue());
-        }
-
-        void applyUsers(AttributeDelta delta) {
-            if (delta.getValuesToAdd() != null) {
-                this.addUsers.addAll(delta.getValuesToAdd());
-            }
-            if (delta.getValuesToRemove() != null) {
-                this.removeUsers.addAll(delta.getValuesToRemove());
-            }
-        }
     }
 
     /**
      * The spec:
      * https://auth0.com/docs/api/management/v2/#!/Roles/delete_roles_by_id
      *
-     * @param objectClass
      * @param uid
      * @param options
      */
-    public void deleteRole(ObjectClass objectClass, Uid uid, OperationOptions options) {
-        if (uid == null) {
-            throw new InvalidAttributeValueException("uid not provided");
-        }
-
-        try {
-            DeleteGroupResponse result = client.deleteGroup(DeleteGroupRequest.builder()
-                    .userPoolId(configuration.getDomain())
-                    .groupName(uid.getUidValue()).build());
-
-            checkCognitoResult(result, "DeleteGroup");
-        } catch (ResourceNotFoundException e) {
-            LOGGER.warn("Not found group when deleting. uid: {0}", uid);
-            throw new UnknownUidException(uid, objectClass);
-        }
+    public void deleteRole(Uid uid, OperationOptions options) throws Auth0Exception {
+        client.deleteRole(uid);
     }
 
     /**
@@ -281,59 +211,73 @@ public class Auth0RoleHandler {
      * @param options
      */
     public void getRoles(Auth0Filter filter,
-                         ResultsHandler resultsHandler, OperationOptions options) {
-        if (filter != null && (filter.isByName() || filter.isByUid())) {
-            getGroupByName(filter.attributeValue, resultsHandler, options);
+                         ResultsHandler resultsHandler, OperationOptions options) throws Auth0Exception {
+        // Create full attributesToGet by RETURN_DEFAULT_ATTRIBUTES + ATTRIBUTES_TO_GET
+        Set<String> attributesToGet = createFullAttributesToGet(schema, options);
+        boolean allowPartialAttributeValues = shouldAllowPartialAttributeValues(options);
+
+        if (filter != null) {
+            if (filter.isByName()) {
+                // Filter by __NANE__
+                getRoleByName(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
+            } else {
+                // Filter by __UID__
+                getRoleByUid(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
+            }
             return;
         }
 
-        // Cannot filter using Cognito API unfortunately...
-        // So we always return all groups here.
-        ListGroupsRequest.Builder request = ListGroupsRequest.builder();
-        request.userPoolId(configuration.getDomain());
-
-        ListGroupsIterable result = client.listGroupsPaginator(request.build());
-
-        result.forEach(r -> r.groups().forEach(g -> resultsHandler.handle(toConnectorObject(g, options))));
+        client.getRoles(options, (role) -> resultsHandler.handle(toConnectorObject(role, attributesToGet, allowPartialAttributeValues)));
     }
 
-    private void getGroupByName(String groupName,
-                                ResultsHandler resultsHandler, OperationOptions options) {
-        GetGroupResponse result = client.getGroup(GetGroupRequest.builder()
-                .userPoolId(configuration.getDomain())
-                .groupName(groupName).build());
+    private void getRoleByName(String roleName,
+                               ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
+        List<Role> response = client.getRoleByName(roleName);
 
-        checkCognitoResult(result, "GetGroup");
-
-        resultsHandler.handle(toConnectorObject(result.group(), options));
-    }
-
-    private ConnectorObject toConnectorObject(GroupType g, OperationOptions options) {
-        String[] attributesToGet = options.getAttributesToGet();
-        if (attributesToGet == null) {
-            return toFullConnectorObject(g);
+        for (Role role : response) {
+            resultsHandler.handle(toConnectorObject(role, attributesToGet, allowPartialAttributeValues));
         }
+    }
 
+    private void getRoleByUid(String roleId,
+                              ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
+        Role role = client.getRoleByUid(roleId);
+
+        resultsHandler.handle(toConnectorObject(role, attributesToGet, allowPartialAttributeValues));
+    }
+
+    private ConnectorObject toConnectorObject(Role role, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
         ConnectorObjectBuilder builder = new ConnectorObjectBuilder()
                 .setObjectClass(ROLE_OBJECT_CLASS)
-                .setUid(g.groupName())
-                .setName(g.groupName());
+                .setUid(role.getId())
+                .setName(role.getName());
 
-        for (String getAttr : attributesToGet) {
-            if (getAttr.equals(ATTR_DESCRIPTION)) {
-                builder.addAttribute(ATTR_DESCRIPTION, g.description());
+        if (shouldReturn(attributesToGet, ATTR_DESCRIPTION)) {
+            builder.addAttribute(ATTR_DESCRIPTION, role.getDescription());
+        }
+
+        if (allowPartialAttributeValues) {
+            // Suppress fetching association
+            LOGGER.ok("Suppress fetching association because return partial attribute values is requested");
+
+            if (shouldReturn(attributesToGet, ATTR_PERMISSIONS)) {
+                builder.addAttribute(createIncompleteAttribute(ATTR_PERMISSIONS));
+            }
+        } else {
+            if (attributesToGet == null) {
+                // Suppress fetching association default
+                LOGGER.ok("Suppress fetching association because returned by default is true");
+
+            } else {
+                if (shouldReturn(attributesToGet, ATTR_PERMISSIONS)) {
+                    // Fetch permissions
+                    LOGGER.ok("Fetching permissions because attributes to get is requested");
+
+                    List<Permission> permissions = associationHandler.getPermissionsForRole(role.getId());
+                    builder.addAttribute(ATTR_PERMISSIONS, toTextPermissions(permissions));
+                }
             }
         }
-
-        return builder.build();
-    }
-
-    private ConnectorObject toFullConnectorObject(GroupType g) {
-        ConnectorObjectBuilder builder = new ConnectorObjectBuilder()
-                .setObjectClass(ROLE_OBJECT_CLASS)
-                .setUid(new Uid(g.groupName(), new Name(g.groupName())))
-                .setName(g.groupName())
-                .addAttribute(ATTR_DESCRIPTION, g.description());
 
         return builder.build();
     }

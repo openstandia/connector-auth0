@@ -42,7 +42,7 @@
             <excludes>
                 <exclude>net.tirasa.connid:connector-framework</exclude>
                 <exclude>net.tirasa.connid:connector-framework-internal</exclude>
-                <exclude>jp.openstandia.connector:connector-amazon-cognito-user-pool</exclude>
+                <exclude>jp.openstandia.connector:connector-auth0</exclude>
             </excludes>
         </dependencySet>
     </dependencySets>

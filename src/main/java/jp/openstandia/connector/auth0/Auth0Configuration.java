@@ -16,8 +16,11 @@
 package jp.openstandia.connector.auth0;
 
 import org.identityconnectors.common.security.GuardedString;
+import org.identityconnectors.framework.common.exceptions.ConfigurationException;
 import org.identityconnectors.framework.spi.AbstractConfiguration;
 import org.identityconnectors.framework.spi.ConfigurationProperty;
+
+import java.util.stream.Collectors;
 
 public class Auth0Configuration extends AbstractConfiguration {
 
@@ -219,5 +222,9 @@ public class Auth0Configuration extends AbstractConfiguration {
 
     @Override
     public void validate() {
+        if (Auth0UserHandler.ALLOWED_NAME_ATTRS.contains(this.usernameAttribute)) {
+            throw new ConfigurationException("Invalid Username Attribute. Allowed value: " +
+                    Auth0UserHandler.ALLOWED_NAME_ATTRS.stream().collect(Collectors.joining(", ")));
+        }
     }
 }

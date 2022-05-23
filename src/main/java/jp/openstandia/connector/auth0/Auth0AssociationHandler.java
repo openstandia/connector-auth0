@@ -15,139 +15,174 @@
  */
 package jp.openstandia.connector.auth0;
 
-import com.auth0.client.mgmt.ManagementAPI;
-import com.auth0.client.mgmt.filter.PageFilter;
 import com.auth0.exception.Auth0Exception;
+import com.auth0.json.mgmt.Permission;
 import com.auth0.json.mgmt.Role;
-import com.auth0.json.mgmt.RolesPage;
-import com.auth0.net.Request;
+import com.auth0.json.mgmt.organizations.Organization;
 import org.identityconnectors.common.logging.Log;
+import org.identityconnectors.framework.common.exceptions.InvalidAttributeValueException;
 import org.identityconnectors.framework.common.objects.Uid;
-import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
-import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
-import software.amazon.awssdk.services.cognitoidentityprovider.paginators.AdminListGroupsForUserIterable;
-import software.amazon.awssdk.services.cognitoidentityprovider.paginators.ListUsersInGroupIterable;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
-
-import static jp.openstandia.connector.auth0.Auth0Utils.checkCognitoResult;
-import static jp.openstandia.connector.auth0.Auth0Utils.paging;
 
 public class Auth0AssociationHandler {
 
     private static final Log LOGGER = Log.getLog(Auth0UserHandler.class);
 
     private final Auth0Configuration configuration;
-    private final CognitoIdentityProviderClient client;
-    private final ManagementAPI client2;
+    private final Auth0Client client;
 
-    public Auth0AssociationHandler(Auth0Configuration configuration, CognitoIdentityProviderClient client) {
+    public Auth0AssociationHandler(Auth0Configuration configuration, Auth0Client client) {
         this.configuration = configuration;
         this.client = client;
-        this.client2 = null;
     }
 
-    public Auth0AssociationHandler(Auth0Configuration configuration, ManagementAPI client) {
-        this.configuration = configuration;
-        this.client = null;
-        this.client2 = client;
-    }
+    // For User
 
-    public void addRolesToUser(Uid uid, List<Object> addRoles) throws Auth0Exception {
-        if (addRoles != null && !addRoles.isEmpty()) {
-            List<String> roles = addRoles.stream().map(r -> r.toString()).collect(Collectors.toList());
-            Request request = client2.users().addRoles(uid.getUidValue(), roles);
-            request.execute();
+    public void addRolesToUser(Uid uid, List<Object> roles) throws Auth0Exception {
+        if (isNotEmpty(roles)) {
+            client.addRolesToUser(uid, toRoles(roles));
         }
     }
 
-    public void updateRolesToUser(Uid uid, List<Object> addRoles, List<Object> removeGroups) throws Auth0Exception {
-        if (addRoles != null && !addRoles.isEmpty()) {
-            List<String> roles = addRoles.stream().map(r -> r.toString()).collect(Collectors.toList());
-            Request request = client2.users().addRoles(uid.getUidValue(), roles);
-            request.execute();
+    public void updateRolesToUser(Uid uid, List<Object> rolesToAdd, List<Object> rolesToRemove) throws Auth0Exception {
+        if (isNotEmpty(rolesToAdd)) {
+            client.addRolesToUser(uid, toRoles(rolesToAdd));
         }
-        if (removeGroups != null && !removeGroups.isEmpty()) {
-            List<String> roles = addRoles.stream().map(r -> r.toString()).collect(Collectors.toList());
-            Request request = client2.users().removeRoles(uid.getUidValue(), roles);
-            request.execute();
+        if (isNotEmpty(rolesToRemove)) {
+            client.removeRolesToUser(uid, toRoles(rolesToRemove));
         }
     }
 
-    private void removeUserFromGroup(String username, String groupName) {
-        AdminRemoveUserFromGroupRequest.Builder request = AdminRemoveUserFromGroupRequest.builder()
-                .userPoolId(configuration.getDomain())
-                .username(username)
-                .groupName(groupName);
-
-        AdminRemoveUserFromGroupResponse result = client.adminRemoveUserFromGroup(request.build());
-
-        checkCognitoResult(result, "AdminRemoveUserFromGroup");
+    public List<Role> getRolesForUser(String userId) throws Auth0Exception {
+        return client.getRolesForUser(userId);
     }
 
-    public void removeAllUsers(String groupName) {
-        getUsers(groupName, u -> removeUserFromGroup(u.username(), groupName));
+    public void addOrganizationsToUser(Uid uid, List<Object> orgs) throws Auth0Exception {
+        if (isNotEmpty(orgs)) {
+            client.addOrganizationsToUser(uid, toOrgs(orgs));
+        }
     }
 
-    public List<String> getUsersInGroup(String groupName) {
-        List<String> users = new ArrayList<>();
-        getUsers(groupName, u -> {
-            users.add(u.username());
-        });
-        return users;
+    public void updateOrganizationsToUser(Uid uid, List<Object> orgsToAdd, List<Object> orgsToRemove) throws Auth0Exception {
+        if (isNotEmpty(orgsToAdd)) {
+            client.addOrganizationsToUser(uid, toOrgs(orgsToAdd));
+        }
+        if (isNotEmpty(orgsToRemove)) {
+            client.removeOrganizationsToUser(uid, toOrgs(orgsToRemove));
+        }
     }
 
-
-    private interface UserHandler {
-        void handle(UserType user);
+    public List<Organization> getOrganizationsForUser(String userId) throws Auth0Exception {
+        return client.getOrganizationsForUser(userId);
     }
 
-    void getUsers(String groupName, UserHandler handler) {
-        ListUsersInGroupRequest.Builder request = ListUsersInGroupRequest.builder()
-                .userPoolId(configuration.getDomain())
-                .groupName(groupName);
-
-        ListUsersInGroupIterable result = client.listUsersInGroupPaginator(request.build());
-
-        result.forEach(r -> r.users().stream().forEach(u -> handler.handle(u)));
+    public void addOrganizationRolesToUser(Uid uid, List<Object> orgRoles) {
+        if (isNotEmpty(orgRoles)) {
+            client.addOrganizationRolesToUser(uid, toOrgRoles(orgRoles));
+        }
     }
 
-    public List<String> getRolesForUser(Auth0Connector connector, String userId) throws Auth0Exception {
-        int pageInitialOffset = 0;
-        int pageSize = 50;
+    public void updateOrganizationRolesToUser(Uid uid, List<Object> orgRolesToAdd, List<Object> orgRolesToRemove) {
+        if (isNotEmpty(orgRolesToAdd)) {
+            client.addOrganizationRolesToUser(uid, toOrgRoles(orgRolesToAdd));
+        }
+        if (isNotEmpty(orgRolesToRemove)) {
+            client.removeOrganizationRolesToUser(uid, toOrgRoles(orgRolesToRemove));
+        }
+    }
 
-        List<String> roles = new ArrayList<>();
+    public Map<String, List<String>> getOrganizationRolesForUser(String userId) throws Auth0Exception {
+        return client.getOrganizationRolesForUser(userId);
+    }
 
-        paging(connector, pageInitialOffset, pageSize, (offset, size) -> {
-            PageFilter filter = new PageFilter()
-                    .withTotals(true)
-                    .withPage(offset, size);
-            Request<RolesPage> request = client2.users().listRoles(userId, filter);
-            RolesPage response = request.execute();
+    public void addPermissionsToUser(Uid uid, List<Object> textPermissions) throws Auth0Exception {
+        if (isNotEmpty(textPermissions)) {
+            client.addPermissionsToUser(uid, toPermissions(textPermissions));
+        }
+    }
 
-            for (Role role : response.getItems()) {
-                roles.add(role.getId());
+    public void updatePermissionsToUser(Uid uid, List<Object> permissionsToAdd, List<Object> permissionsToRemove) throws Auth0Exception {
+        if (isNotEmpty(permissionsToAdd)) {
+            client.addPermissionsToUser(uid, toPermissions(permissionsToAdd));
+        }
+        if (isNotEmpty(permissionsToRemove)) {
+            client.removePermissionsToUser(uid, toPermissions(permissionsToRemove));
+        }
+    }
+
+    public List<Permission> getPermissionsForUser(String userId) throws Auth0Exception {
+        return client.getPermissionsForUser(userId);
+    }
+
+    // For Role
+
+    public void addPermissionsToRole(Uid uid, List<Object> textPermissions) throws Auth0Exception {
+        if (isNotEmpty(textPermissions)) {
+            client.addPermissionsToRole(uid, toPermissions(textPermissions));
+        }
+    }
+
+    public void updatePermissionsToRole(Uid uid, List<Object> permissionsToAdd, List<Object> permissionsToRemove) throws Auth0Exception {
+        if (isNotEmpty(permissionsToAdd)) {
+            client.addPermissionsToRole(uid, toPermissions(permissionsToAdd));
+        }
+        if (isNotEmpty(permissionsToRemove)) {
+            client.removePermissionsToRole(uid, toPermissions(permissionsToAdd));
+        }
+    }
+
+    public List<Permission> getPermissionsForRole(String roleId) throws Auth0Exception {
+        return client.getPermissionsForRole(roleId);
+    }
+
+    // Utilities
+
+    private static List<String> toRoles(List<Object> roles) {
+        return roles.stream().map(r -> r.toString()).collect(Collectors.toList());
+    }
+
+    private static List<Permission> toPermissions(List<Object> textPermissions) {
+        return textPermissions.stream().map(p -> {
+            String[] idAndScope = p.toString().split("#");
+            if (idAndScope.length != 2) {
+                throw new InvalidAttributeValueException("Invalid permission format: " + p);
+            }
+            Permission permission = new Permission();
+            permission.setResourceServerId(idAndScope[0]);
+            permission.setName(idAndScope[1]);
+
+            return permission;
+        }).collect(Collectors.toList());
+    }
+
+    private static List<String> toOrgs(List<Object> orgs) {
+        return orgs.stream().map(r -> r.toString()).collect(Collectors.toList());
+    }
+
+    private static Map<String, List<String>> toOrgRoles(List<Object> orgRoles) {
+        Map<String, List<String>> result = new HashMap<>();
+        for (Object o : orgRoles) {
+            String[] split = o.toString().split(":");
+            if (split.length != 2) {
+                throw new InvalidAttributeValueException("Invalid organization_roles format: " + o.toString());
             }
 
-            return response;
-        });
-
-        return roles;
+            List<String> roles = result.get(split[0]);
+            if (roles == null) {
+                roles = new ArrayList<>();
+                result.put(split[0], roles);
+            }
+            roles.add(split[1]);
+        }
+        return result;
     }
 
-    private interface GroupHandler {
-        void handle(GroupType group);
-    }
-
-    private void getGroups(String userName, GroupHandler handler) {
-        AdminListGroupsForUserRequest.Builder request = AdminListGroupsForUserRequest.builder()
-                .userPoolId(configuration.getDomain())
-                .username(userName);
-
-        AdminListGroupsForUserIterable result = client.adminListGroupsForUserPaginator(request.build());
-
-        result.forEach(r -> r.groups().stream().forEach(g -> handler.handle(g)));
+    private boolean isNotEmpty(List list) {
+        return list != null && !list.isEmpty();
     }
 }

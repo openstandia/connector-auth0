@@ -15,19 +15,13 @@
  */
 package jp.openstandia.connector.auth0;
 
-import com.auth0.exception.APIException;
-import com.auth0.exception.Auth0Exception;
-import com.auth0.json.mgmt.Page;
-import org.identityconnectors.framework.common.exceptions.ConnectorException;
+import com.auth0.json.mgmt.Permission;
 import org.identityconnectors.framework.common.exceptions.InvalidAttributeValueException;
 import org.identityconnectors.framework.common.objects.*;
-import software.amazon.awssdk.services.cognitoidentityprovider.model.AttributeType;
-import software.amazon.awssdk.services.cognitoidentityprovider.model.CognitoIdentityProviderResponse;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -41,7 +35,6 @@ public class Auth0Utils {
     public static ZonedDateTime toZoneDateTime(Date date) {
         ZoneId zone = ZoneId.systemDefault();
         return ZonedDateTime.ofInstant(date.toInstant(), zone);
-
     }
 
     public static ZonedDateTime toZoneDateTime(String yyyymmdd) {
@@ -50,129 +43,27 @@ public class Auth0Utils {
     }
 
     /**
-     * Transform a Cognito attribute object to a Connector attribute object.
+     * Transform Auth0 Permission objects to permission text lists.
+     * The permission text format is "{resourceServerId}#{resourceName}".
      *
-     * @param attributeInfo
-     * @param a
+     * @param permissions
      * @return
      */
-    public static Attribute toConnectorAttribute(AttributeInfo attributeInfo, AttributeType a) {
-        // Cognito API returns the attribute as string even if it's other types.
-        // We need to check the type from the schema and convert it.
-        // Also, we must escape the name for custom attributes (The name of custom attribute starts with "custom:").
-        if (attributeInfo.getType() == Integer.class) {
-            return AttributeBuilder.build(a.name(), Integer.parseInt(a.value()));
-        }
-        if (attributeInfo.getType() == ZonedDateTime.class) {
-            // The format is YYYY-MM-DD
-            return AttributeBuilder.build(a.name(), toZoneDateTime(a.value()));
-        }
-        if (attributeInfo.getType() == Boolean.class) {
-            return AttributeBuilder.build(a.name(), Boolean.parseBoolean(a.value()));
-        }
-
-        // String
-        return AttributeBuilder.build(a.name(), a.value());
+    public static List<String> toTextPermissions(List<Permission> permissions) {
+        return permissions.stream()
+                .map(p -> p.getResourceServerId() + "#" + p.getName())
+                .collect(Collectors.toList());
     }
 
-    public static AttributeType toCognitoAttribute(Map<String, AttributeInfo> schema, AttributeDelta delta) {
-        return AttributeType.builder()
-                .name(delta.getName())
-                .value(toCognitoValue(schema, delta))
-                .build();
-    }
+    public static List<String> toTextOrgRoles(Map<String, List<String>> orgRoles) {
+        List<String> textOrgRoles = new ArrayList<>();
 
-    /**
-     * Transform a Connector attribute object to a Cognito attribute object.
-     *
-     * @param schema
-     * @param attr
-     * @return
-     */
-    public static AttributeType toCognitoAttribute(Map<String, AttributeInfo> schema, Attribute attr) {
-        return AttributeType.builder()
-                .name(attr.getName())
-                .value(toCognitoValue(schema, attr))
-                .build();
-    }
-
-    private static String toCognitoValue(Map<String, AttributeInfo> schema, AttributeDelta delta) {
-        // The key of the schema is escaped key
-        AttributeInfo attributeInfo = schema.get(delta.getName());
-        if (attributeInfo == null) {
-            throw new InvalidAttributeValueException("Invalid attribute. name: " + delta.getName());
+        for (Map.Entry<String, List<String>> entry : orgRoles.entrySet()) {
+            for (String roleId : entry.getValue()) {
+                textOrgRoles.add(entry.getKey() + ":" + roleId);
+            }
         }
-
-        if (attributeInfo.getType() == Integer.class) {
-            return AttributeDeltaUtil.getAsStringValue(delta);
-        }
-        if (attributeInfo.getType() == ZonedDateTime.class) {
-            // The format must be YYYY-MM-DD in cognito
-            ZonedDateTime date = (ZonedDateTime) AttributeDeltaUtil.getSingleValue(delta);
-            return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
-        }
-        if (attributeInfo.getType() == Boolean.class) {
-            return AttributeDeltaUtil.getAsStringValue(delta);
-        }
-
-        return AttributeDeltaUtil.getAsStringValue(delta);
-    }
-
-    private static String toCognitoValue(Map<String, AttributeInfo> schema, Attribute attr) {
-        // The key of the schema is escaped key
-        AttributeInfo attributeInfo = schema.get(attr.getName());
-        if (attributeInfo == null) {
-            throw new InvalidAttributeValueException("Invalid attribute. name: " + attr.getName());
-        }
-
-        if (attributeInfo.getType() == Integer.class) {
-            return AttributeUtil.getAsStringValue(attr);
-        }
-        if (attributeInfo.getType() == ZonedDateTime.class) {
-            // The format must be YYYY-MM-DD in cognito
-            ZonedDateTime date = (ZonedDateTime) AttributeUtil.getSingleValue(attr);
-            return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
-        }
-        if (attributeInfo.getType() == Boolean.class) {
-            return AttributeUtil.getAsStringValue(attr);
-        }
-
-        return AttributeUtil.getAsStringValue(attr);
-    }
-
-    public static AttributeType toCognitoAttributeForDelete(AttributeDelta delta) {
-        // Cognito deletes the attribute when updating the value with ""
-        return AttributeType.builder()
-                .name(delta.getName())
-                .value("")
-                .build();
-    }
-
-    /**
-     * Transform a Connector attribute object to a Cognito attribute object for deleting the value.
-     *
-     * @param attr
-     * @return
-     */
-    public static AttributeType toCognitoAttributeForDelete(Attribute attr) {
-        // Cognito deletes the attribute when updating the value with ""
-        return AttributeType.builder()
-                .name(attr.getName())
-                .value("")
-                .build();
-    }
-
-    /**
-     * Check cognito result if it returns unexpected error.
-     *
-     * @param result
-     * @param apiName
-     */
-    public static void checkCognitoResult(CognitoIdentityProviderResponse result, String apiName) {
-        int status = result.sdkHttpResponse().statusCode();
-        if (status != 200) {
-            throw new ConnectorException(String.format("Cognito returns unexpected error when calling \"%s\". status: %d", apiName, status));
-        }
+        return textOrgRoles;
     }
 
     /**
@@ -204,7 +95,14 @@ public class Auth0Utils {
         return attrsToGetSet.contains(attr);
     }
 
-    public static void invalidSchema(String name) throws InvalidAttributeValueException {
+    public static Attribute createIncompleteAttribute(String attr) {
+        AttributeBuilder builder = new AttributeBuilder();
+        builder.setName(attr).setAttributeValueCompleteness(AttributeValueCompleteness.INCOMPLETE);
+        builder.addValue(Collections.EMPTY_LIST);
+        return builder.build();
+    }
+
+    public static void throwInvalidSchema(String name) throws InvalidAttributeValueException {
         InvalidAttributeValueException exception = new InvalidAttributeValueException(
                 String.format("Auth0 doesn't support to set '%s' attribute", name));
         exception.setAffectedAttributeNames(Arrays.asList(name));
@@ -254,37 +152,5 @@ public class Auth0Utils {
             return options.getPagedResultsOffset();
         }
         return 0;
-    }
-
-    public static void paging(Auth0Connector connector, int initialOffset, int pageSize, PageFunction<Integer, Integer, Page<?>> callback) throws Auth0Exception {
-        int offset = initialOffset;
-
-        while (true) {
-            try {
-                Page<?> response = callback.apply(offset, pageSize);
-                if (hasNextPage(response)) {
-                    offset++;
-                    continue;
-                }
-                break;
-            } catch (APIException e) {
-                // If the api token is expired during paging process, refresh the token then retry
-                if (e.getStatusCode() == 401 && e.getError().equals("Invalid tokens.")) {
-                    connector.refreshToken();
-                    continue;
-                }
-                throw e;
-            }
-        }
-    }
-
-    @FunctionalInterface
-    interface PageFunction<One, Two, Result> {
-        public Result apply(One one, Two two) throws Auth0Exception;
-    }
-
-    private static boolean hasNextPage(Page<?> page) {
-        int remains = (page.getTotal() - page.getStart() + page.getLimit());
-        return remains > 0;
     }
 }
