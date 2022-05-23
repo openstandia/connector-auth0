@@ -102,7 +102,7 @@ public class Auth0Client {
             if (isExpired(tokenHolder)) {
                 final AuthAPI[] authAPI = new AuthAPI[1];
                 configuration.getClientSecret().access(c -> {
-                    authAPI[0] = new AuthAPI(configuration.getDomain(), configuration.getDomain(), String.valueOf(c));
+                    authAPI[0] = new AuthAPI(configuration.getDomain(), configuration.getClientId(), String.valueOf(c));
                 });
                 AuthRequest authRequest = authAPI[0].requestToken(String.format("https://%s/api/v2/", configuration.getDomain()));
                 tokenHolder = authRequest.execute();

@@ -19,10 +19,10 @@ import com.auth0.json.mgmt.Permission;
 import org.identityconnectors.framework.common.exceptions.InvalidAttributeValueException;
 import org.identityconnectors.framework.common.objects.*;
 
-import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -37,9 +37,74 @@ public class Auth0Utils {
         return ZonedDateTime.ofInstant(date.toInstant(), zone);
     }
 
-    public static ZonedDateTime toZoneDateTime(String yyyymmdd) {
-        LocalDate date = LocalDate.parse(yyyymmdd);
-        return date.atStartOfDay(ZoneId.systemDefault());
+    public static Attribute buildDisable(final boolean value) {
+        return AttributeBuilder.buildEnabled(!value);
+    }
+
+    public static class ConnectorObjectBuilderWrapper {
+        private final Set<String> attributesToGet;
+        private final ConnectorObjectBuilder builder;
+
+        public ConnectorObjectBuilderWrapper(Set<String> attributesToGet, ObjectClass objectClass) {
+            this.attributesToGet = attributesToGet;
+            this.builder = new ConnectorObjectBuilder().setObjectClass(objectClass);
+        }
+
+        public void applyUid(String value) {
+            if (value != null) {
+                builder.setUid(value);
+            }
+        }
+
+        public void applyName(String value) {
+            if (value != null) {
+                builder.setName(value);
+            }
+        }
+
+        public <T, R> void apply(String attrName, T value) {
+            if (shouldReturn(attributesToGet, attrName)) {
+                if (value != null) {
+                    builder.addAttribute(AttributeBuilder.build(attrName, value));
+                }
+            }
+        }
+
+        public <T, R> void apply(String attrName, T value, Function<T, R> callback) {
+            if (shouldReturn(attributesToGet, attrName)) {
+                if (value != null) {
+                    R result = callback.apply(value);
+                    if (result != null) {
+                        if (result instanceof Attribute) {
+                            builder.addAttribute((Attribute) result);
+                        } else {
+                            builder.addAttribute(AttributeBuilder.build(attrName, result));
+                        }
+                    }
+                }
+            }
+        }
+
+        public <R> void apply(String attrName, Function<String, R> callback) {
+            if (shouldReturn(attributesToGet, attrName)) {
+                R result = callback.apply(attrName);
+                if (result != null) {
+                    if (result instanceof Attribute) {
+                        builder.addAttribute((Attribute) result);
+                    } else {
+                        builder.addAttribute(AttributeBuilder.build(attrName, result));
+                    }
+                }
+            }
+        }
+
+        public void addAttribute(String attrName, List<String> values) {
+            builder.addAttribute(attrName, values);
+        }
+
+        public ConnectorObject build() {
+            return builder.build();
+        }
     }
 
     /**

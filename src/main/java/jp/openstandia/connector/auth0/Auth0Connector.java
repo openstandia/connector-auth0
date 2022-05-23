@@ -277,6 +277,7 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
         if (e instanceof Auth0Exception) {
             return processException((Auth0Exception) e);
         }
+        LOG.error(e, "Exception in Auth0Connector: " + instanceName);
         return new ConnectorException(e);
     }
 
@@ -284,6 +285,7 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
         if (e instanceof ConnectorException) {
             return (ConnectorException) e;
         }
+        LOG.error(e, "RuntimeException in Auth0Connector: " + instanceName);
         return new ConnectorException(e);
     }
 

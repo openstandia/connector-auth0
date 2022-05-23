@@ -282,22 +282,30 @@ public class Auth0OrganizationHandler {
                 .setName(org.getName());
 
         if (shouldReturn(attributesToGet, ATTR_DISPLAY_NAME)) {
-            builder.addAttribute(ATTR_DISPLAY_NAME, org.getDisplayName());
+            if (org.getDisplayName() != null) {
+                builder.addAttribute(ATTR_DISPLAY_NAME, org.getDisplayName());
+            }
         }
 
         Branding branding = org.getBranding();
         if (branding != null) {
             if (shouldReturn(attributesToGet, ATTR_BRANDING_LOG_URL)) {
-                builder.addAttribute(ATTR_BRANDING_LOG_URL, branding.getLogoUrl());
+                if (branding.getLogoUrl() != null) {
+                    builder.addAttribute(ATTR_BRANDING_LOG_URL, branding.getLogoUrl());
+                }
             }
 
             Colors colors = branding.getColors();
             if (colors != null) {
                 if (shouldReturn(attributesToGet, ATTR_BRANDING_COLORS_PRIMARY)) {
-                    builder.addAttribute(ATTR_BRANDING_COLORS_PRIMARY, colors.getPrimary());
+                    if (colors.getPrimary() != null) {
+                        builder.addAttribute(ATTR_BRANDING_COLORS_PRIMARY, colors.getPrimary());
+                    }
                 }
                 if (shouldReturn(attributesToGet, ATTR_BRANDING_COLORS_PAGE_BACKGROUND)) {
-                    builder.addAttribute(ATTR_BRANDING_COLORS_PAGE_BACKGROUND, colors.getPageBackground());
+                    if (colors.getPageBackground() != null) {
+                        builder.addAttribute(ATTR_BRANDING_COLORS_PAGE_BACKGROUND, colors.getPageBackground());
+                    }
                 }
             }
         }

@@ -256,7 +256,9 @@ public class Auth0RoleHandler {
                 .setName(role.getName());
 
         if (shouldReturn(attributesToGet, ATTR_DESCRIPTION)) {
-            builder.addAttribute(ATTR_DESCRIPTION, role.getDescription());
+            if (role.getDescription() != null) {
+                builder.addAttribute(ATTR_DESCRIPTION, role.getDescription());
+            }
         }
 
         if (allowPartialAttributeValues) {

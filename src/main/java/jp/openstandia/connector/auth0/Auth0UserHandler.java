@@ -615,99 +615,61 @@ public class Auth0UserHandler {
     }
 
     private ConnectorObject toConnectorObject(User user, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
-        final ConnectorObjectBuilder builder = new ConnectorObjectBuilder()
-                .setObjectClass(USER_OBJECT_CLASS)
-                // Always returns "user_id"
-                .setUid(user.getId());
+        ConnectorObjectBuilderWrapper builderWrapper = new ConnectorObjectBuilderWrapper(attributesToGet, USER_OBJECT_CLASS);
+
+        // Always returns "user_id"
+        builderWrapper.applyUid(user.getId());
 
         // Metadata
-        if (shouldReturn(attributesToGet, ENABLE_NAME)) {
-            builder.addAttribute(AttributeBuilder.buildEnabled(!user.isBlocked()));
-        }
-        if (shouldReturn(attributesToGet, ATTR_CREATED_AT)) {
-            builder.addAttribute(ATTR_CREATED_AT, Auth0Utils.toZoneDateTime(user.getCreatedAt()));
-        }
-        if (shouldReturn(attributesToGet, ATTR_UPDATED_AT)) {
-            builder.addAttribute(ATTR_UPDATED_AT, Auth0Utils.toZoneDateTime(user.getUpdatedAt()));
-        }
-        if (shouldReturn(attributesToGet, ATTR_LAST_IP)) {
-            builder.addAttribute(ATTR_LAST_IP, user.getLastIP());
-        }
-        if (shouldReturn(attributesToGet, ATTR_LAST_LOGIN)) {
-            builder.addAttribute(ATTR_LAST_LOGIN, Auth0Utils.toZoneDateTime(user.getLastLogin()));
-        }
-        if (shouldReturn(attributesToGet, ATTR_LOGINS_COUNT)) {
-            builder.addAttribute(ATTR_LOGINS_COUNT, user.getLoginsCount());
-        }
+        builderWrapper.apply(ENABLE_NAME, user.isBlocked(), Auth0Utils::buildDisable);
+        builderWrapper.apply(ATTR_CREATED_AT, user.getCreatedAt(), Auth0Utils::toZoneDateTime);
+        builderWrapper.apply(ATTR_UPDATED_AT, user.getUpdatedAt(), Auth0Utils::toZoneDateTime);
+        builderWrapper.apply(ATTR_LAST_IP, user.getLastIP());
+        builderWrapper.apply(ATTR_LAST_LOGIN, user.getLastLogin());
+        builderWrapper.apply(ATTR_LOGINS_COUNT, user.getLoginsCount());
 
         // __NAME__
         if (isNameAttribute(configuration, ATTR_EMAIL)) {
-            builder.setName(user.getEmail());
+            builderWrapper.applyName(user.getEmail());
         } else if (isNameAttribute(configuration, ATTR_PHONE_NUMBER)) {
-            builder.setName(user.getPhoneNumber());
+            builderWrapper.applyName(user.getPhoneNumber());
         } else if (isNameAttribute(configuration, ATTR_USERNAME)) {
-            builder.setName(user.getUsername());
+            builderWrapper.applyName(user.getUsername());
         } else {
-            builder.setName(user.getId());
+            builderWrapper.applyName(user.getId());
         }
 
         // Standard
         ALLOWED_NAME_ATTRS.stream()
                 .filter(attr -> !attr.equals(configuration.getUsernameAttribute()) && !attr.equals(ATTR_USER_ID))
                 .forEach(attr -> {
-                    if (shouldReturn(attributesToGet, attr)) {
-                        if (attr.equals(ATTR_EMAIL)) {
-                            builder.addAttribute(attr, user.getEmail());
-                        }
-                        if (attr.equals(ATTR_PHONE_NUMBER)) {
-                            builder.addAttribute(attr, user.getPhoneNumber());
-                        }
-                        if (attr.equals(ATTR_USERNAME)) {
-                            builder.addAttribute(attr, user.getUsername());
-                        }
+                    if (attr.equals(ATTR_EMAIL)) {
+                        builderWrapper.apply(attr, user.getEmail());
+                    }
+                    if (attr.equals(ATTR_PHONE_NUMBER)) {
+                        builderWrapper.apply(attr, user.getPhoneNumber());
+                    }
+                    if (attr.equals(ATTR_USERNAME)) {
+                        builderWrapper.apply(attr, user.getUsername());
                     }
                 });
-        if (shouldReturn(attributesToGet, ATTR_EMAIL_VERIFIED)) {
-            builder.addAttribute(ATTR_EMAIL_VERIFIED, user.isEmailVerified());
-        }
-        if (shouldReturn(attributesToGet, ATTR_PHONE_VERIFIED)) {
-            builder.addAttribute(ATTR_PHONE_VERIFIED, user.isPhoneVerified());
-        }
-        if (shouldReturn(attributesToGet, ATTR_PICTURE)) {
-            builder.addAttribute(ATTR_PICTURE, user.getPicture());
-        }
-        if (shouldReturn(attributesToGet, ATTR_NAME)) {
-            builder.addAttribute(ATTR_NAME, user.getName());
-        }
-        if (shouldReturn(attributesToGet, ATTR_NICKNAME)) {
-            builder.addAttribute(ATTR_NICKNAME, user.getNickname());
-        }
-        if (shouldReturn(attributesToGet, ATTR_GIVEN_NAME)) {
-            builder.addAttribute(ATTR_GIVEN_NAME, user.getGivenName());
-        }
-        if (shouldReturn(attributesToGet, ATTR_FAMILY_NAME)) {
-            builder.addAttribute(ATTR_FAMILY_NAME, user.getFamilyName());
-        }
-        if (shouldReturn(attributesToGet, ATTR_CONNECTION)) {
-            builder.addAttribute(ATTR_CONNECTION, user.getIdentities().stream().map(i -> i.getConnection()).collect(Collectors.toList()));
-        }
+        builderWrapper.apply(ATTR_EMAIL_VERIFIED, user.isEmailVerified());
+        builderWrapper.apply(ATTR_PHONE_VERIFIED, user.isPhoneVerified());
+        builderWrapper.apply(ATTR_PICTURE, user.getPicture());
+        builderWrapper.apply(ATTR_NAME, user.getName());
+        builderWrapper.apply(ATTR_NICKNAME, user.getNickname());
+        builderWrapper.apply(ATTR_GIVEN_NAME, user.getGivenName());
+        builderWrapper.apply(ATTR_FAMILY_NAME, user.getFamilyName());
+        builderWrapper.apply(ATTR_CONNECTION, user.getIdentities().stream().map(i -> i.getConnection()).collect(Collectors.toList()));
 
         if (allowPartialAttributeValues) {
             // Suppress fetching association
             LOGGER.ok("Suppress fetching association because return partial attribute values is requested");
 
-            if (shouldReturn(attributesToGet, ATTR_ROLES)) {
-                builder.addAttribute(createIncompleteAttribute(ATTR_ROLES));
-            }
-            if (shouldReturn(attributesToGet, ATTR_ORGANIZATIONS)) {
-                builder.addAttribute(createIncompleteAttribute(ATTR_ORGANIZATIONS));
-            }
-            if (shouldReturn(attributesToGet, ATTR_ORGANIZATION_ROLES)) {
-                builder.addAttribute(createIncompleteAttribute(ATTR_ORGANIZATION_ROLES));
-            }
-            if (shouldReturn(attributesToGet, ATTR_PERMISSIONS)) {
-                builder.addAttribute(createIncompleteAttribute(ATTR_PERMISSIONS));
-            }
+            builderWrapper.apply(ATTR_ROLES, Auth0Utils::createIncompleteAttribute);
+            builderWrapper.apply(ATTR_ORGANIZATIONS, Auth0Utils::createIncompleteAttribute);
+            builderWrapper.apply(ATTR_ORGANIZATION_ROLES, Auth0Utils::createIncompleteAttribute);
+            builderWrapper.apply(ATTR_PERMISSIONS, Auth0Utils::createIncompleteAttribute);
         } else {
             if (attributesToGet == null) {
                 // Suppress fetching association default
@@ -719,7 +681,7 @@ public class Auth0UserHandler {
                     LOGGER.ok("Fetching roles because attributes to get is requested");
 
                     List<Role> roles = associationHandler.getRolesForUser(user.getId());
-                    builder.addAttribute(ATTR_ROLES,
+                    builderWrapper.addAttribute(ATTR_ROLES,
                             roles.stream().map(r -> r.getId()).collect(Collectors.toList()));
                 }
                 if (shouldReturn(attributesToGet, ATTR_ORGANIZATIONS)) {
@@ -727,7 +689,7 @@ public class Auth0UserHandler {
                     LOGGER.ok("Fetching organizations because attributes to get is requested");
 
                     List<Organization> orgs = associationHandler.getOrganizationsForUser(user.getId());
-                    builder.addAttribute(ATTR_ORGANIZATIONS,
+                    builderWrapper.addAttribute(ATTR_ORGANIZATIONS,
                             orgs.stream().map(o -> o.getId()).collect(Collectors.toList()));
                 }
                 if (shouldReturn(attributesToGet, ATTR_ORGANIZATION_ROLES)) {
@@ -735,19 +697,19 @@ public class Auth0UserHandler {
                     LOGGER.ok("Fetching organization roles because attributes to get is requested");
 
                     Map<String, List<String>> orgRoles = associationHandler.getOrganizationRolesForUser(user.getId());
-                    builder.addAttribute(ATTR_ORGANIZATION_ROLES, toTextOrgRoles(orgRoles));
+                    builderWrapper.addAttribute(ATTR_ORGANIZATION_ROLES, toTextOrgRoles(orgRoles));
                 }
                 if (shouldReturn(attributesToGet, ATTR_PERMISSIONS)) {
                     // Fetch permissions
                     LOGGER.ok("Fetching permissions because attributes to get is requested");
 
                     List<Permission> permissions = associationHandler.getPermissionsForUser(user.getId());
-                    builder.addAttribute(ATTR_PERMISSIONS, toTextPermissions(permissions));
+                    builderWrapper.addAttribute(ATTR_PERMISSIONS, toTextPermissions(permissions));
                 }
             }
         }
 
-        return builder.build();
+        return builderWrapper.build();
     }
 
     private static <T extends FieldsFilter> T applyFieldsFilter(Auth0Configuration configuration, Set<String> attributesToGet, T filter) {
