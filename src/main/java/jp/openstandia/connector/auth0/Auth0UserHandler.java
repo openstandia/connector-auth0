@@ -306,6 +306,7 @@ public class Auth0UserHandler {
      *
      * @param attributes
      * @return
+     * @throws Auth0Exception
      */
     public Uid createUser(Set<Attribute> attributes) throws Auth0Exception {
         User newUser = new User();
@@ -421,6 +422,7 @@ public class Auth0UserHandler {
      * @param modifications
      * @param options
      * @return
+     * @throws Auth0Exception
      */
     public Set<AttributeDelta> updateDelta(Uid uid, Set<AttributeDelta> modifications, OperationOptions options) throws Auth0Exception {
         User modifyUser = new User();
@@ -551,6 +553,7 @@ public class Auth0UserHandler {
      *
      * @param uid
      * @param options
+     * @throws Auth0Exception
      */
     public void deleteUser(Uid uid, OperationOptions options) throws Auth0Exception {
         client.deleteUser(uid);

@@ -116,7 +116,7 @@ public class Auth0RoleHandler {
      *
      * @param attributes
      * @return
-     * @throws
+     * @throws Auth0Exception
      */
     public Uid createRole(Set<Attribute> attributes) throws Auth0Exception {
         Role newRole = new Role();
@@ -158,6 +158,7 @@ public class Auth0RoleHandler {
      * @param modifications
      * @param options
      * @return
+     * @throws Auth0Exception
      */
     public Set<AttributeDelta> updateDelta(Uid uid, Set<AttributeDelta> modifications, OperationOptions options) throws Auth0Exception {
         Role patchRole = new Role();
@@ -197,6 +198,7 @@ public class Auth0RoleHandler {
      *
      * @param uid
      * @param options
+     * @throws Auth0Exception
      */
     public void deleteRole(Uid uid, OperationOptions options) throws Auth0Exception {
         client.deleteRole(uid);
@@ -209,6 +211,7 @@ public class Auth0RoleHandler {
      * @param filter
      * @param resultsHandler
      * @param options
+     * @throws Auth0Exception
      */
     public void getRoles(Auth0Filter filter,
                          ResultsHandler resultsHandler, OperationOptions options) throws Auth0Exception {

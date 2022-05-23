@@ -102,7 +102,7 @@ public class Auth0OrganizationHandler {
      *
      * @param attributes
      * @return
-     * @throws
+     * @throws Auth0Exception
      */
     public Uid create(Set<Attribute> attributes) throws Auth0Exception {
         Organization newOrg = new Organization();
@@ -166,6 +166,7 @@ public class Auth0OrganizationHandler {
      * @param modifications
      * @param options
      * @return
+     * @throws Auth0Exception
      */
     public Set<AttributeDelta> updateDelta(Uid uid, Set<AttributeDelta> modifications, OperationOptions options) throws Auth0Exception {
         Organization patchOrg = new Organization();
@@ -225,6 +226,7 @@ public class Auth0OrganizationHandler {
      *
      * @param uid
      * @param options
+     * @throws Auth0Exception
      */
     public void delete(Uid uid, OperationOptions options) throws Auth0Exception {
         client.deleteOrganization(uid);
@@ -237,6 +239,7 @@ public class Auth0OrganizationHandler {
      * @param filter
      * @param resultsHandler
      * @param options
+     * @throws Auth0Exception
      */
     public void query(Auth0Filter filter,
                       ResultsHandler resultsHandler, OperationOptions options) throws Auth0Exception {
