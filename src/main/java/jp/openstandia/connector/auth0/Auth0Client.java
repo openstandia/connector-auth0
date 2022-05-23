@@ -145,6 +145,22 @@ public class Auth0Client {
         return false;
     }
 
+    // Connection
+    public List<Connection> getConnection(ConnectionFilter connectionFilter) throws Auth0Exception {
+        List<Connection> conns = new ArrayList<>();
+
+        withAuthPaging(connectionFilter, 0, 50, (filter) -> {
+            Request<ConnectionsPage> request = internalClient.connections().listAll(filter);
+            ConnectionsPage response = request.execute();
+
+            conns.addAll(response.getItems());
+
+            return response;
+        });
+
+        return conns;
+    }
+
     // User
 
     public User createUser(User newUser) throws Auth0Exception {
@@ -525,6 +541,27 @@ public class Auth0Client {
     }
 
     private <T extends QueryFilter> void withAuthPaging(T filter, int initialOffset, int pageSize, PageFunction<T, Page<?>> callback) throws Auth0Exception {
+        int offset = initialOffset;
+
+        filter.withTotals(true);
+
+        while (true) {
+            filter.withPage(offset, pageSize);
+
+            Page<?> result = withAuth(() -> {
+                Page<?> response = callback.apply(filter);
+                return response;
+            });
+
+            if (hasNextPage(result)) {
+                offset++;
+                continue;
+            }
+            break;
+        }
+    }
+
+    private <T extends ConnectionFilter> void withAuthPaging(T filter, int initialOffset, int pageSize, PageFunction<T, Page<?>> callback) throws Auth0Exception {
         int offset = initialOffset;
 
         filter.withTotals(true);

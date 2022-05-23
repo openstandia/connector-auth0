@@ -32,7 +32,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     private String httpProxyUser;
     private GuardedString httpProxyPassword;
     private Integer defaultQueryPageSize = 50;
-    private String[] databaseConnection = new String[]{"Username-Password-Authentication"};
+    private String[] connectionFilter = new String[]{};
 
     @ConfigurationProperty(
             order = 1,
@@ -78,16 +78,16 @@ public class Auth0Configuration extends AbstractConfiguration {
 
     @ConfigurationProperty(
             order = 4,
-            displayMessageKey = "Database Connections",
-            helpMessageKey = "Set database connections. Default: Username-Password-Authentication",
-            required = true,
+            displayMessageKey = "Auth0 connections filter",
+            helpMessageKey = "Set filter of Auth0 connections.",
+            required = false,
             confidential = false)
-    public String[] getDatabaseConnection() {
-        return databaseConnection;
+    public String[] getConnectionFilter() {
+        return connectionFilter;
     }
 
-    public void setDatabaseConnection(String[] databaseConnection) {
-        this.databaseConnection = databaseConnection;
+    public void setConnectionFilter(String[] connectionFilter) {
+        this.connectionFilter = connectionFilter;
     }
 
     @ConfigurationProperty(

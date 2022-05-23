@@ -15,6 +15,7 @@
  */
 package jp.openstandia.connector.auth0;
 
+import com.auth0.client.mgmt.filter.ConnectionFilter;
 import com.auth0.exception.APIException;
 import com.auth0.exception.Auth0Exception;
 import com.auth0.exception.RateLimitException;
@@ -28,10 +29,8 @@ import org.identityconnectors.framework.spi.InstanceNameAware;
 import org.identityconnectors.framework.spi.PoolableConnector;
 import org.identityconnectors.framework.spi.operations.*;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static jp.openstandia.connector.auth0.Auth0OrganizationHandler.ORGANIZATION_OBJECT_CLASS;
 import static jp.openstandia.connector.auth0.Auth0RoleHandler.ROLE_OBJECT_CLASS;
@@ -73,11 +72,21 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
     @Override
     public Schema schema() {
         try {
+            List<String> connections = client.getConnection(new ConnectionFilter()).stream()
+                    .map(c -> c.getName())
+                    .collect(Collectors.toList());
+
+            if (configuration.getConnectionFilter() != null && configuration.getConnectionFilter().length > 0) {
+                connections = connections.stream()
+                        .filter(c -> Arrays.stream(configuration.getConnectionFilter()).anyMatch(cf -> c.equals(cf)))
+                        .collect(Collectors.toList());
+            }
+
             SchemaBuilder schemaBuilder = new SchemaBuilder(Auth0Connector.class);
 
             Map<String, Map<String, AttributeInfo>> schema = new HashMap<>();
 
-            for (String databaseConnection : configuration.getDatabaseConnection()) {
+            for (String databaseConnection : connections) {
                 ObjectClassInfo userSchemaInfo = Auth0UserHandler.getSchema(configuration, databaseConnection);
                 schemaBuilder.defineObjectClass(userSchemaInfo);
 
@@ -114,7 +123,7 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
 
             return schemaBuilder.build();
 
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | Auth0Exception e) {
             throw processException(e);
         }
     }

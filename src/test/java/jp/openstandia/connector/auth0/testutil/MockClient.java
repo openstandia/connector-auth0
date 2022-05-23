@@ -15,13 +15,17 @@
  */
 package jp.openstandia.connector.auth0.testutil;
 
+import com.auth0.client.mgmt.filter.ConnectionFilter;
 import com.auth0.exception.APIException;
 import com.auth0.exception.Auth0Exception;
+import com.auth0.json.mgmt.Connection;
 import com.auth0.json.mgmt.users.User;
 import jp.openstandia.connector.auth0.Auth0Client;
 import org.identityconnectors.framework.common.objects.Uid;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class MockClient extends Auth0Client {
@@ -60,6 +64,15 @@ public class MockClient extends Auth0Client {
         values.put("message", "The user already exists.");
         values.put("errorCode", "auth0_idp_error");
         return new APIException(values, 409);
+    }
+
+    @Override
+    public List<Connection> getConnection(ConnectionFilter connectionFilter) throws Auth0Exception {
+        List<Connection> connections = new ArrayList<>();
+        Connection connection = new Connection("Username-Password-Authentication", "auth0");
+        connections.add(connection);
+
+        return connections;
     }
 
     @Override
