@@ -34,7 +34,6 @@ public class Auth0Configuration extends AbstractConfiguration {
     private int httpProxyPort;
     private String httpProxyUser;
     private GuardedString httpProxyPassword;
-    private boolean suppressInvitationMessageEnabled = true;
     private String usernameAttribute = "email";
     private Integer defaultQueryPageSize = 50;
 
@@ -176,20 +175,6 @@ public class Auth0Configuration extends AbstractConfiguration {
 
     public void setHttpProxyPassword(GuardedString httpProxyPassword) {
         this.httpProxyPassword = httpProxyPassword;
-    }
-
-    @ConfigurationProperty(
-            order = 12,
-            displayMessageKey = "Suppress Invitation Message",
-            helpMessageKey = "If enabled, suppress sending invitation message when creating the user. Default: true",
-            required = false,
-            confidential = false)
-    public boolean isSuppressInvitationMessageEnabled() {
-        return suppressInvitationMessageEnabled;
-    }
-
-    public void setSuppressInvitationMessageEnabled(boolean suppressInvitationMessageEnabled) {
-        this.suppressInvitationMessageEnabled = suppressInvitationMessageEnabled;
     }
 
     @ConfigurationProperty(

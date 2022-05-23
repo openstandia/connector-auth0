@@ -61,22 +61,18 @@ public class Auth0Client {
 
         HttpOptions httpOptions = new HttpOptions();
 
-        if (this.configuration.getConnectionTimeoutInSeconds() != null) {
-            httpOptions.setConnectTimeout(this.configuration.getConnectionTimeoutInSeconds());
+        if (configuration.getConnectionTimeoutInSeconds() != null) {
+            httpOptions.setConnectTimeout(configuration.getConnectionTimeoutInSeconds());
         }
-        if (this.configuration.getReadTimeoutInSeconds() != null) {
-            httpOptions.setReadTimeout(this.configuration.getReadTimeoutInSeconds());
+        if (configuration.getReadTimeoutInSeconds() != null) {
+            httpOptions.setReadTimeout(configuration.getReadTimeoutInSeconds());
         }
-        if (this.configuration.getMaxRetries() != null) {
-            httpOptions.setManagementAPIMaxRetries(this.configuration.getMaxRetries());
+        if (configuration.getMaxRetries() != null) {
+            httpOptions.setManagementAPIMaxRetries(configuration.getMaxRetries());
         }
 
         // HTTP Proxy
-        if (StringUtil.isNotEmpty(this.configuration.getHttpProxyHost())) {
-            Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress(this.configuration.getHttpProxyHost(), this.configuration.getHttpProxyPort()));
-            ProxyOptions proxyOptions = new ProxyOptions(proxy);
-            httpOptions.setProxyOptions(proxyOptions);
-        }
+        applyProxyIfNecessary(httpOptions);
 
         // Setup client
         refreshToken();
@@ -84,6 +80,19 @@ public class Auth0Client {
 
         // Verify we can access the API
         checkClient();
+    }
+
+    private void applyProxyIfNecessary(HttpOptions httpOptions) {
+        if (StringUtil.isNotEmpty(configuration.getHttpProxyHost())) {
+            Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress(configuration.getHttpProxyHost(), configuration.getHttpProxyPort()));
+            ProxyOptions proxyOptions = new ProxyOptions(proxy);
+            if (StringUtil.isNotEmpty(configuration.getHttpProxyUser())) {
+                configuration.getHttpProxyPassword().access(c -> {
+                    proxyOptions.setBasicAuthentication(configuration.getHttpProxyUser(), c);
+                });
+            }
+            httpOptions.setProxyOptions(proxyOptions);
+        }
     }
 
     private void checkClient() throws Auth0Exception {
@@ -102,7 +111,12 @@ public class Auth0Client {
             if (isExpired(tokenHolder)) {
                 final AuthAPI[] authAPI = new AuthAPI[1];
                 configuration.getClientSecret().access(c -> {
-                    authAPI[0] = new AuthAPI(configuration.getDomain(), configuration.getClientId(), String.valueOf(c));
+                    HttpOptions httpOptions = new HttpOptions();
+
+                    // HTTP Proxy for auth
+                    applyProxyIfNecessary(httpOptions);
+
+                    authAPI[0] = new AuthAPI(configuration.getDomain(), configuration.getClientId(), String.valueOf(c), httpOptions);
                 });
                 AuthRequest authRequest = authAPI[0].requestToken(String.format("https://%s/api/v2/", configuration.getDomain()));
                 tokenHolder = authRequest.execute();
