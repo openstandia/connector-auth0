@@ -211,6 +211,46 @@
                         </exclusion>
                     </exclusions>
                 </dependency>
+                <dependency>
+                    <groupId>net.tirasa.connid</groupId>
+                    <artifactId>connector-framework-contract</artifactId>
+                    <version>${connId.version}</version>
+                    <scope>test</scope>
+                    <exclusions>
+                        <exclusion>
+                            <groupId>net.tirasa.connid</groupId>
+                            <artifactId>connector-test-common</artifactId>
+                        </exclusion>
+                        <exclusion>
+                            <groupId>org.codehaus.groovy</groupId>
+                            <artifactId>groovy</artifactId>
+                        </exclusion>
+                        <exclusion>
+                            <groupId>org.codehaus.groovy</groupId>
+                            <artifactId>groovy-templates</artifactId>
+                        </exclusion>
+                        <exclusion>
+                            <groupId>org.codehaus.groovy</groupId>
+                            <artifactId>groovy-bsf</artifactId>
+                        </exclusion>
+                        <exclusion>
+                            <groupId>org.codehaus.groovy</groupId>
+                            <artifactId>groovy-jsr223</artifactId>
+                        </exclusion>
+                        <exclusion>
+                            <groupId>org.codehaus.groovy</groupId>
+                            <artifactId>groovy-datetime</artifactId>
+                        </exclusion>
+                        <exclusion>
+                            <groupId>org.codehaus.groovy</groupId>
+                            <artifactId>groovy-dateutil</artifactId>
+                        </exclusion>
+                        <exclusion>
+                            <groupId>org.codehaus.groovy</groupId>
+                            <artifactId>groovy-sql</artifactId>
+                        </exclusion>
+                    </exclusions>
+                </dependency>
             </dependencies>
         </profile>
     </profiles>

@@ -270,7 +270,7 @@ public class Auth0Client {
             Request<RolesPage> request = internalClient.users().listRoles(userId, filter);
             RolesPage response = request.execute();
 
-            roles.addAll(roles);
+            roles.addAll(response.getItems());
 
             return response;
         });
@@ -369,18 +369,18 @@ public class Auth0Client {
     }
 
     public List<Permission> getPermissionsForUser(String userId) throws Auth0Exception {
-        List<Permission> roles = new ArrayList<>();
+        List<Permission> permissions = new ArrayList<>();
 
         withAuthPaging(new PageFilter(), 0, 50, (filter) -> {
             Request<PermissionsPage> request = internalClient.users().listPermissions(userId, filter);
             PermissionsPage response = request.execute();
 
-            roles.addAll(roles);
+            permissions.addAll(response.getItems());
 
             return response;
         });
 
-        return roles;
+        return permissions;
     }
 
     // Role
@@ -462,18 +462,18 @@ public class Auth0Client {
     }
 
     public List<Permission> getPermissionsForRole(String roleId) throws Auth0Exception {
-        List<Permission> roles = new ArrayList<>();
+        List<Permission> permissions = new ArrayList<>();
 
         withAuthPaging(new PageFilter(), 0, 50, (filter) -> {
             Request<PermissionsPage> request = internalClient.roles().listPermissions(roleId, filter);
             PermissionsPage response = request.execute();
 
-            roles.addAll(roles);
+            permissions.addAll(response.getItems());
 
             return response;
         });
 
-        return roles;
+        return permissions;
     }
 
     // Organization

@@ -432,6 +432,8 @@ public class Auth0UserHandler {
         List<Object> permissionsToAdd = null;
         List<Object> permissionsToRemove = null;
 
+        boolean doUpdateUser = false;
+
         for (AttributeDelta delta : modifications) {
             if (delta.getName().equals(Uid.NAME)) {
                 // Doesn't support to modify 'user_id'
@@ -445,60 +447,69 @@ public class Auth0UserHandler {
                 } else {
                     modifyUser.setEmail(AttributeDeltaUtil.getAsStringValue(delta));
                 }
+                doUpdateUser = true;
             }
 
             // Standard Attributes
             else if (delta.getName().equals(ATTR_EMAIL)) {
                 modifyUser.setEmail(AttributeDeltaUtil.getAsStringValue(delta));
+                doUpdateUser = true;
 
             } else if (delta.getName().equals(ATTR_NICKNAME)) {
                 modifyUser.setNickname(AttributeDeltaUtil.getAsStringValue(delta));
+                doUpdateUser = true;
 
             } else if (delta.getName().equals(ATTR_PHONE_NUMBER)) {
                 modifyUser.setPhoneNumber(AttributeDeltaUtil.getAsStringValue(delta));
+                doUpdateUser = true;
 
             } else if (delta.getName().equals(ATTR_GIVEN_NAME)) {
                 modifyUser.setGivenName(AttributeDeltaUtil.getAsStringValue(delta));
+                doUpdateUser = true;
 
             } else if (delta.getName().equals(ATTR_FAMILY_NAME)) {
                 modifyUser.setFamilyName(AttributeDeltaUtil.getAsStringValue(delta));
+                doUpdateUser = true;
 
             } else if (delta.getName().equals(ATTR_NAME)) {
                 modifyUser.setName(AttributeDeltaUtil.getAsStringValue(delta));
+                doUpdateUser = true;
 
             } else if (delta.getName().equals(ATTR_PICTURE)) {
                 modifyUser.setPicture(AttributeDeltaUtil.getAsStringValue(delta));
+                doUpdateUser = true;
 
             } else if (delta.getName().equals(ATTR_USERNAME)) {
                 modifyUser.setUsername(AttributeDeltaUtil.getAsStringValue(delta));
+                doUpdateUser = true;
 
             } else if (delta.getName().equals(ATTR_EMAIL_VERIFIED)) {
                 modifyUser.setEmailVerified(AttributeDeltaUtil.getBooleanValue(delta));
+                doUpdateUser = true;
 
             } else if (delta.getName().equals(ATTR_VERIFY_EMAIL)) {
                 modifyUser.setVerifyEmail(AttributeDeltaUtil.getBooleanValue(delta));
+                doUpdateUser = true;
 
             } else if (delta.getName().equals(ATTR_PHONE_VERIFIED)) {
                 modifyUser.setPhoneVerified(AttributeDeltaUtil.getBooleanValue(delta));
+                doUpdateUser = true;
 
             } else if (delta.getName().equals(ATTR_VERIFY_PHONE_NUMBER)) {
                 modifyUser.setVerifyPhoneNumber(AttributeDeltaUtil.getBooleanValue(delta));
-
-            } else if (delta.getName().equals(ATTR_BLOCKED)) {
-                modifyUser.setBlocked(AttributeDeltaUtil.getBooleanValue(delta));
+                doUpdateUser = true;
             }
 
             // Metadata
             else if (delta.getName().equals(OperationalAttributes.ENABLE_NAME)) {
                 modifyUser.setBlocked(!AttributeDeltaUtil.getBooleanValue(delta));
-
-            } else if (delta.getName().equals(ATTR_CONNECTION)) {
-                modifyUser.setConnection(AttributeDeltaUtil.getAsStringValue(delta));
+                doUpdateUser = true;
 
             } else if (delta.getName().equals(OperationalAttributes.PASSWORD_NAME)) {
                 AttributeDeltaUtil.getGuardedStringValue(delta).access(c -> {
                     modifyUser.setPassword(c);
                 });
+                doUpdateUser = true;
             }
 
             // Association
@@ -525,7 +536,9 @@ public class Auth0UserHandler {
             }
         }
 
-        client.updateUser(uid, modifyUser);
+        if (doUpdateUser) {
+            client.updateUser(uid, modifyUser);
+        }
 
         // We need to call another API to add/remove role for this user.
         // It means that we can't execute this operation as a single transaction.
