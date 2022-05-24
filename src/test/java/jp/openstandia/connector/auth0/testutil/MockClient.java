@@ -69,9 +69,8 @@ public class MockClient extends Auth0Client {
     @Override
     public List<Connection> getConnection(ConnectionFilter connectionFilter) throws Auth0Exception {
         List<Connection> connections = new ArrayList<>();
-        Connection connection = new Connection("Username-Password-Authentication", "auth0");
-        connections.add(connection);
-
+        connections.add(new Connection("Username-Password-Authentication", "auth0"));
+        connections.add(new Connection("sms", "sms"));
         return connections;
     }
 

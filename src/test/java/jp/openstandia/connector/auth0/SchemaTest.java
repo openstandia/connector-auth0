@@ -20,7 +20,9 @@ import org.identityconnectors.framework.common.objects.ObjectClassInfo;
 import org.identityconnectors.framework.common.objects.Schema;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -31,13 +33,13 @@ class SchemaTest extends AbstractTest {
         Schema schema = connector.schema();
 
         assertNotNull(schema);
-        assertEquals(3, schema.getObjectClassInfo().size());
+        assertEquals(4, schema.getObjectClassInfo().size());
 
-        Optional<ObjectClassInfo> user = schema.getObjectClassInfo().stream().filter(o -> o.getType().startsWith("User_")).findFirst();
+        List<ObjectClassInfo> users = schema.getObjectClassInfo().stream().filter(o -> o.getType().startsWith("User_")).collect(Collectors.toList());
         Optional<ObjectClassInfo> role = schema.getObjectClassInfo().stream().filter(o -> o.is("Role")).findFirst();
         Optional<ObjectClassInfo> organization = schema.getObjectClassInfo().stream().filter(o -> o.is("Organization")).findFirst();
 
-        assertTrue(user.isPresent());
+        assertEquals(2 , users.size());
         assertTrue(role.isPresent());
         assertTrue(organization.isPresent());
     }

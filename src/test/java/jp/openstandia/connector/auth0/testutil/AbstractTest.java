@@ -32,6 +32,7 @@ public abstract class AbstractTest {
     protected MockClient mockClient;
 
     protected ObjectClass DEFAULT_USER_OBJECT_CLASS = new ObjectClass(Auth0UserHandler.USER_OBJECT_CLASS_PREFIX + "Username-Password-Authentication");
+    protected ObjectClass SMS_USER_OBJECT_CLASS = new ObjectClass(Auth0UserHandler.USER_OBJECT_CLASS_PREFIX + "sms");
 
     protected Auth0Configuration newConfiguration() {
         Auth0Configuration conf = new Auth0Configuration();

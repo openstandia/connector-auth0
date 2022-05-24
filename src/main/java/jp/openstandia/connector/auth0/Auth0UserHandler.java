@@ -387,7 +387,7 @@ public class Auth0UserHandler {
 
         User response = client.createUser(newUser);
 
-        Uid newUid = new Uid(response.getId(), new Name(response.getEmail()));
+        Uid newUid = new Uid(response.getId(), new Name(isSMS() ? response.getPhoneNumber() : response.getEmail()));
 
         // We need to call another API to add/remove roles/organizations/permissions for this user.
         // It means that we can't execute this operation as a single transaction.

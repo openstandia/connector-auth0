@@ -112,6 +112,52 @@ class UserCreateTest extends AbstractTest {
     }
 
     @Test
+    void createSMSUser() {
+        // Given
+        // {
+        //  "phone_number": "+817000000000",
+        //  "connection": "sms",
+        //  "phone_verified": true
+        // }
+        String userId = "sms|628c1c52d371ba34be1df5be";
+        String phoneNumber = "+817000000000";
+
+        Set<Attribute> attrs = new HashSet<>();
+        attrs.add(new Name(phoneNumber));
+
+        mockClient.createUser = ((user) -> {
+            user.setId(userId);
+            return user;
+        });
+
+        // When
+        Uid uid = connector.create(SMS_USER_OBJECT_CLASS, attrs, new OperationOptionsBuilder().build());
+
+        // Then
+        // {
+        //  "created_at": "2022-05-23T23:44:18.851Z",
+        //  "email_verified": false,
+        //  "identities": [
+        //    {
+        //      "connection": "sms",
+        //      "user_id": "628c1c52d371ba34be1df5be",
+        //      "provider": "sms",
+        //      "isSocial": false
+        //    }
+        //  ],
+        //  "name": "+817000000000",
+        //  "nickname": "+817000000000",
+        //  "phone_number": "+817000000000",
+        //  "phone_verified": true,
+        //  "picture": "https://cdn.auth0.com/avatars/8.png",
+        //  "updated_at": "2022-05-23T23:44:18.851Z",
+        //  "user_id": "sms|628c1c52d371ba34be1df5be"
+        // }
+        assertEquals(userId, uid.getUidValue());
+        assertEquals(phoneNumber, uid.getNameHintValue());
+    }
+
+    @Test
     void createUserWithAlreadyExistsError() {
         // Given
         String email = "foo@example.com";
