@@ -16,6 +16,7 @@
 package jp.openstandia.connector.auth0.testutil;
 
 import com.auth0.client.mgmt.filter.ConnectionFilter;
+import com.auth0.client.mgmt.filter.FieldsFilter;
 import com.auth0.exception.APIException;
 import com.auth0.exception.Auth0Exception;
 import com.auth0.json.mgmt.Connection;
@@ -35,6 +36,7 @@ public class MockClient extends Auth0Client {
     // User
     public MockFunction<User, User> createUser;
     public MockBiConsumer<Uid, User> updateUser;
+    public MockBiFunction<String, FieldsFilter, List<User>> getUserByEmail;
 
     private MockClient() {
     }
@@ -84,9 +86,19 @@ public class MockClient extends Auth0Client {
         updateUser.accept(uid, patchUser);
     }
 
+    @Override
+    public List<User> getUserByEmail(String email, FieldsFilter filter) throws Auth0Exception {
+        return getUserByEmail.apply(email, filter);
+    }
+
     @FunctionalInterface
     public interface MockFunction<T, R> {
         R apply(T t) throws Auth0Exception;
+    }
+
+    @FunctionalInterface
+    public interface MockBiFunction<T, U, R> {
+        R apply(T t, U u) throws Auth0Exception;
     }
 
     @FunctionalInterface

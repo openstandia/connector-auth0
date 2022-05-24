@@ -689,7 +689,7 @@ public class Auth0UserHandler {
     }
 
     private <T extends FieldsFilter> T applyFieldsFilter(Auth0Configuration configuration, Set<String> attributesToGet, T filter) {
-        if (!attributesToGet.isEmpty()) {
+        if (attributesToGet != null && !attributesToGet.isEmpty()) {
             for (String attr : attributesToGet) {
                 if (ALLOWED_FIELDS_SET.contains(attr)) {
                     filter.withFields(attr, true);
