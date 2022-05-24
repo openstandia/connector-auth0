@@ -18,16 +18,14 @@ package jp.openstandia.connector.auth0;
 import com.auth0.json.mgmt.users.User;
 import jp.openstandia.connector.auth0.testutil.AbstractTest;
 import org.identityconnectors.framework.common.objects.*;
-import org.identityconnectors.framework.common.objects.filter.Filter;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class UserGetTest extends AbstractTest {
 

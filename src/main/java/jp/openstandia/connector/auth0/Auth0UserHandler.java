@@ -713,6 +713,6 @@ public class Auth0UserHandler {
     }
 
     private boolean isSMS() {
-        return databaseConnection.equals("sms");
+        return databaseConnection.equals(SMS_CONNECTION);
     }
 }
