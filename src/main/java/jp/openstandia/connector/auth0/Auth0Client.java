@@ -201,6 +201,15 @@ public class Auth0Client {
         });
     }
 
+    /**
+     * Caution: This method returns users from all connections.
+     * The results may have multiple users with same email.
+     *
+     * @param email
+     * @param filter
+     * @return
+     * @throws Auth0Exception
+     */
     public List<User> getUserByEmail(String email, FieldsFilter filter) throws Auth0Exception {
         return withAuth(() -> {
             Request<List<User>> request = internalClient.users().listByEmail(email, filter);
@@ -615,7 +624,7 @@ public class Auth0Client {
     }
 
     @FunctionalInterface
-    interface ResultHandlerFunction<One, Result> {
+    public interface ResultHandlerFunction<One, Result> {
         public Result apply(One one) throws Auth0Exception;
     }
 

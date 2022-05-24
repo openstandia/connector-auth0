@@ -39,7 +39,7 @@ class SchemaTest extends AbstractTest {
         Optional<ObjectClassInfo> role = schema.getObjectClassInfo().stream().filter(o -> o.is("Role")).findFirst();
         Optional<ObjectClassInfo> organization = schema.getObjectClassInfo().stream().filter(o -> o.is("Organization")).findFirst();
 
-        assertEquals(2 , users.size());
+        assertEquals(2, users.size());
         assertTrue(role.isPresent());
         assertTrue(organization.isPresent());
     }

@@ -152,16 +152,16 @@ public class Auth0UserHandler {
     private final Auth0Client client;
     private final Auth0AssociationHandler associationHandler;
     private final Map<String, AttributeInfo> schema;
-    private final String databaseConnection;
+    private final String connection;
     private final ObjectClass objectClass;
 
     public Auth0UserHandler(Auth0Configuration configuration, Auth0Client client,
-                            Map<String, AttributeInfo> schema, String databaseConnection) {
+                            Map<String, AttributeInfo> schema, String connection) {
         this.configuration = configuration;
         this.client = client;
         this.schema = schema;
-        this.databaseConnection = databaseConnection;
-        this.objectClass = new ObjectClass(USER_OBJECT_CLASS_PREFIX + databaseConnection);
+        this.connection = connection;
+        this.objectClass = new ObjectClass(USER_OBJECT_CLASS_PREFIX + connection);
         this.associationHandler = new Auth0AssociationHandler(configuration, client);
     }
 
@@ -300,7 +300,7 @@ public class Auth0UserHandler {
      */
     public Uid createUser(Set<Attribute> attributes) throws Auth0Exception {
         User newUser = new User();
-        newUser.setConnection(databaseConnection);
+        newUser.setConnection(connection);
 
         List<Object> roles = null;
         List<Object> orgs = null;
@@ -415,7 +415,7 @@ public class Auth0UserHandler {
         User modifyUser = new User();
         // If we are updating email, email_verified, phone_number, phone_verified,
         // username or password of a secondary identity, we need to specify the connection property too.
-        modifyUser.setConnection(databaseConnection);
+        modifyUser.setConnection(connection);
 
         List<Object> rolesToAdd = null;
         List<Object> rolesToRemove = null;
@@ -566,7 +566,8 @@ public class Auth0UserHandler {
             return;
         }
 
-        UserFilter userFilter = applyFieldsFilter(configuration, attributesToGet, new UserFilter());
+        UserFilter userFilter = applyFieldsFilter(configuration, attributesToGet, new UserFilter())
+                .withQuery("identities.connection:\"" + connection + "\"");
 
         client.getUsers(userFilter, options, (user) -> resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues)));
     }
@@ -583,8 +584,8 @@ public class Auth0UserHandler {
                                       boolean allowPartialAttributeValues) throws Auth0Exception {
         attrValue = attrValue.replace("\"", "\\\"");
         UserFilter filter = new UserFilter()
-                .withPage(0, 2)
-                .withQuery("phone_number:\"" + attrValue + "\"");
+                .withPage(0, 1)
+                .withQuery("identities.connection:\"" + connection + "\" AND phone_number:\"" + attrValue + "\"");
         filter = applyFieldsFilter(configuration, attributesToGet, filter);
 
         List<User> response = client.getUsersByFilter(filter);
@@ -596,8 +597,14 @@ public class Auth0UserHandler {
 
     private void getUserByEmail(String email, ResultsHandler resultsHandler, Set<String> attributesToGet,
                                 boolean allowPartialAttributeValues) throws Auth0Exception {
-        FieldsFilter filter = applyFieldsFilter(configuration, attributesToGet, new FieldsFilter());
-        List<User> response = client.getUserByEmail(email, filter);
+        email = email.replace("\"", "\\\"");
+        UserFilter filter = new UserFilter()
+                .withPage(0, 1)
+                .withQuery("identities.connection:\"" + connection + "\" AND email:\"" + email + "\"");
+        filter = applyFieldsFilter(configuration, attributesToGet, filter);
+
+        // We don't use "User's By Email" API because it can't filter by connection
+        List<User> response = client.getUsersByFilter(filter);
 
         for (User user : response) {
             resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues));
@@ -713,6 +720,6 @@ public class Auth0UserHandler {
     }
 
     private boolean isSMS() {
-        return databaseConnection.equals(SMS_CONNECTION);
+        return connection.equals(SMS_CONNECTION);
     }
 }

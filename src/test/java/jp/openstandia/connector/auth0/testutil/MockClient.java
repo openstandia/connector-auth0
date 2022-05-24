@@ -17,11 +17,13 @@ package jp.openstandia.connector.auth0.testutil;
 
 import com.auth0.client.mgmt.filter.ConnectionFilter;
 import com.auth0.client.mgmt.filter.FieldsFilter;
+import com.auth0.client.mgmt.filter.UserFilter;
 import com.auth0.exception.APIException;
 import com.auth0.exception.Auth0Exception;
 import com.auth0.json.mgmt.Connection;
 import com.auth0.json.mgmt.users.User;
 import jp.openstandia.connector.auth0.Auth0Client;
+import org.identityconnectors.framework.common.objects.OperationOptions;
 import org.identityconnectors.framework.common.objects.Uid;
 
 import java.util.ArrayList;
@@ -36,7 +38,11 @@ public class MockClient extends Auth0Client {
     // User
     public MockFunction<User, User> createUser;
     public MockBiConsumer<Uid, User> updateUser;
+    public MockBiFunction<String, FieldsFilter, User> getUserByUid;
     public MockBiFunction<String, FieldsFilter, List<User>> getUserByEmail;
+    public MockFunction<UserFilter, List<User>> getUsersByFilter;
+    public MockThreeConsumer<UserFilter, OperationOptions, Auth0Client.ResultHandlerFunction<User, Boolean>> getUsers;
+    public MockConsumer<Uid> deleteUser;
 
     private MockClient() {
     }
@@ -87,8 +93,28 @@ public class MockClient extends Auth0Client {
     }
 
     @Override
+    public User getUserByUid(String userId, UserFilter filter) throws Auth0Exception {
+        return getUserByUid.apply(userId, filter);
+    }
+
+    @Override
     public List<User> getUserByEmail(String email, FieldsFilter filter) throws Auth0Exception {
         return getUserByEmail.apply(email, filter);
+    }
+
+    @Override
+    public List<User> getUsersByFilter(UserFilter filter) throws Auth0Exception {
+        return getUsersByFilter.apply(filter);
+    }
+
+    @Override
+    public void getUsers(UserFilter userFilter, OperationOptions options, Auth0Client.ResultHandlerFunction<User, Boolean> resultsHandler) throws Auth0Exception {
+        getUsers.accept(userFilter, options, resultsHandler);
+    }
+
+    @Override
+    public void deleteUser(Uid uid) throws Auth0Exception {
+        deleteUser.accept(uid);
     }
 
     @FunctionalInterface
@@ -102,7 +128,17 @@ public class MockClient extends Auth0Client {
     }
 
     @FunctionalInterface
+    public interface MockConsumer<T> {
+        void accept(T t) throws Auth0Exception;
+    }
+
+    @FunctionalInterface
     public interface MockBiConsumer<T, U> {
         void accept(T t, U u) throws Auth0Exception;
+    }
+
+    @FunctionalInterface
+    public interface MockThreeConsumer<T, U, V> {
+        void accept(T t, U u, V v) throws Auth0Exception;
     }
 }
