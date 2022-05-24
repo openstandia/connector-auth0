@@ -129,6 +129,7 @@ public class Auth0UserHandler {
     // Allowed fields in users query to retrieve fields
     private static final Set<String> ALLOWED_FIELDS_SET = Stream.of(
             ATTR_PHONE_NUMBER,
+            ATTR_PHONE_VERIFIED,
             ATTR_EMAIL,
             ATTR_EMAIL_VERIFIED,
             ATTR_PICTURE,
@@ -697,23 +698,45 @@ public class Auth0UserHandler {
 
     private <T extends FieldsFilter> T applyFieldsFilter(Auth0Configuration configuration, Set<String> attributesToGet, T filter) {
         if (attributesToGet != null && !attributesToGet.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+
             for (String attr : attributesToGet) {
                 if (ALLOWED_FIELDS_SET.contains(attr)) {
-                    filter.withFields(attr, true);
+                    sb.append(attr);
+                    sb.append(",");
                 } else {
-                    if (attr.equals(Name.NAME)) {
+                    if (attr.equals(Uid.NAME)) {
+                        sb.append(ATTR_USER_ID);
+                        sb.append(",");
+                    } else if (attr.equals(Name.NAME)) {
                         if (isSMS()) {
-                            filter.withFields(ATTR_PHONE_NUMBER, true);
+                            sb.append(ATTR_PHONE_NUMBER);
+                            sb.append(",");
                         } else {
-                            filter.withFields(ATTR_EMAIL, true);
+                            sb.append(ATTR_EMAIL);
+                            sb.append(",");
                         }
-                        continue;
                     } else if (attr.equals(ENABLE_NAME)) {
-                        filter.withFields(ATTR_BLOCKED, true);
+                        sb.append(ATTR_BLOCKED);
+                        sb.append(",");
+                    } else if (attr.equals(PASSWORD_NAME)) {
+                        // Ignore
+                    } else if (attr.equals(ATTR_CONNECTION)) {
+                        sb.append("identities.");
+                        sb.append(ATTR_CONNECTION);
+                        sb.append(",");
+                    } else {
+                        // Try to fetch with not allowed fields
+                        // We need to fetch all fields
+                        sb = null;
+                        break;
                     }
-                    filter = null;
-                    break;
                 }
+            }
+
+            if (sb != null) {
+                sb.deleteCharAt(sb.length() - 1);
+                filter.withFields(sb.toString(), true);
             }
         }
         return filter;
