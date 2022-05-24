@@ -173,6 +173,18 @@ public class Auth0Client {
 
     public void updateUser(Uid uid, User patchUser) throws Auth0Exception {
         withAuth(() -> {
+            // Reference: https://auth0.com/docs/api/management/v2#!/Users/patch_users_by_id
+            // Some considerations:
+            //
+            // - The properties of the new object will replace the old ones.
+            // - The metadata fields are an exception to this rule (user_metadata and app_metadata).
+            //   These properties are merged instead of being replaced but be careful, the merge only occurs on the first level.
+            // - If you are updating email, email_verified, phone_number, phone_verified, username or password of a secondary identity,
+            //   you need to specify the connection property too.
+            // - If you are updating email or phone_number you can specify, optionally, the client_id property.
+            // - Updating email_verified is not supported for enterprise and passwordless sms connections.
+            // - Updating the blocked to false does not affect the user's blocked state from an excessive amount of incorrectly
+            //   provided credentials. Use the "Unblock a user" endpoint from the "User Blocks" API to change the user's state.
             Request<User> request = internalClient.users().update(uid.getUidValue(), patchUser);
             return request.execute();
         });

@@ -41,13 +41,10 @@ public class Auth0FilterTranslator extends AbstractFilterTranslator<Auth0Filter>
 
         if (attr instanceof Uid) {
             Uid uid = (Uid) attr;
-            Name nameHint = uid.getNameHint();
-            if (nameHint != null) {
-                Auth0Filter nameFilter = new Auth0Filter(nameHint.getName(),
-                        Auth0Filter.FilterType.EXACT_MATCH,
-                        nameHint.getNameValue());
-                return nameFilter;
-            }
+            Auth0Filter uidFilter = new Auth0Filter(uid.getName(),
+                    Auth0Filter.FilterType.EXACT_MATCH,
+                    uid.getUidValue());
+            return uidFilter;
         }
 
         Auth0Filter auth0Filter = new Auth0Filter(attr.getName(),

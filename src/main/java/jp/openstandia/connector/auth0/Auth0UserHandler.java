@@ -26,6 +26,7 @@ import org.identityconnectors.common.logging.Log;
 import org.identityconnectors.framework.common.objects.*;
 
 import java.time.ZonedDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -129,7 +130,8 @@ public class Auth0UserHandler {
     // Allowed fields in users query to retrieve fields
     private static final Set<String> ALLOWED_FIELDS_SET = Stream.of(
             ATTR_PHONE_NUMBER,
-            ATTR_PHONE_VERIFIED,
+            // Not supported for Get User API
+            // ATTR_PHONE_VERIFIED,
             ATTR_EMAIL,
             ATTR_EMAIL_VERIFIED,
             ATTR_PICTURE,
@@ -147,6 +149,9 @@ public class Auth0UserHandler {
             ATTR_UPDATED_AT,
             ATTR_FAMILY_NAME,
             ATTR_GIVEN_NAME
+    ).collect(Collectors.toSet());
+    private static final Set<String> ADDITIONAL_ALLOWED_FIELDS_SET = Stream.of(
+            ATTR_PHONE_VERIFIED
     ).collect(Collectors.toSet());
 
     private final Auth0Configuration configuration;
@@ -567,7 +572,7 @@ public class Auth0UserHandler {
             return;
         }
 
-        UserFilter userFilter = applyFieldsFilter(configuration, attributesToGet, new UserFilter())
+        UserFilter userFilter = applyFieldsFilter(attributesToGet, new UserFilter(), ADDITIONAL_ALLOWED_FIELDS_SET)
                 .withQuery("identities.connection:\"" + connection + "\"");
 
         client.getUsers(userFilter, options, (user) -> resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues)));
@@ -575,7 +580,7 @@ public class Auth0UserHandler {
 
     private void getUserByUid(String userId, ResultsHandler resultsHandler, Set<String> attributesToGet,
                               boolean allowPartialAttributeValues) throws Auth0Exception {
-        UserFilter filter = applyFieldsFilter(configuration, attributesToGet, new UserFilter());
+        UserFilter filter = applyFieldsFilter(attributesToGet, new UserFilter(), Collections.emptySet());
         User user = client.getUserByUid(userId, filter);
 
         resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues));
@@ -587,7 +592,7 @@ public class Auth0UserHandler {
         UserFilter filter = new UserFilter()
                 .withPage(0, 1)
                 .withQuery("identities.connection:\"" + connection + "\" AND phone_number:\"" + attrValue + "\"");
-        filter = applyFieldsFilter(configuration, attributesToGet, filter);
+        filter = applyFieldsFilter(attributesToGet, filter, ADDITIONAL_ALLOWED_FIELDS_SET);
 
         List<User> response = client.getUsersByFilter(filter);
 
@@ -602,7 +607,7 @@ public class Auth0UserHandler {
         UserFilter filter = new UserFilter()
                 .withPage(0, 1)
                 .withQuery("identities.connection:\"" + connection + "\" AND email:\"" + email + "\"");
-        filter = applyFieldsFilter(configuration, attributesToGet, filter);
+        filter = applyFieldsFilter(attributesToGet, filter, ADDITIONAL_ALLOWED_FIELDS_SET);
 
         // We don't use "User's By Email" API because it can't filter by connection
         List<User> response = client.getUsersByFilter(filter);
@@ -696,12 +701,15 @@ public class Auth0UserHandler {
         return builderWrapper.build();
     }
 
-    private <T extends FieldsFilter> T applyFieldsFilter(Auth0Configuration configuration, Set<String> attributesToGet, T filter) {
+    private <T extends FieldsFilter> T applyFieldsFilter(Set<String> attributesToGet, T filter, Set<String> additionalAllowedFields) {
         if (attributesToGet != null && !attributesToGet.isEmpty()) {
             StringBuilder sb = new StringBuilder();
 
             for (String attr : attributesToGet) {
                 if (ALLOWED_FIELDS_SET.contains(attr)) {
+                    sb.append(attr);
+                    sb.append(",");
+                } else if (additionalAllowedFields.contains(attr)) {
                     sb.append(attr);
                     sb.append(",");
                 } else {
