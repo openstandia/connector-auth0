@@ -61,15 +61,9 @@ public class Auth0Client {
 
         HttpOptions httpOptions = new HttpOptions();
 
-        if (configuration.getConnectionTimeoutInSeconds() != null) {
-            httpOptions.setConnectTimeout(configuration.getConnectionTimeoutInSeconds());
-        }
-        if (configuration.getReadTimeoutInSeconds() != null) {
-            httpOptions.setReadTimeout(configuration.getReadTimeoutInSeconds());
-        }
-        if (configuration.getMaxRetries() != null) {
-            httpOptions.setManagementAPIMaxRetries(configuration.getMaxRetries());
-        }
+        httpOptions.setConnectTimeout(configuration.getConnectionTimeoutInSeconds());
+        httpOptions.setReadTimeout(configuration.getReadTimeoutInSeconds());
+        httpOptions.setManagementAPIMaxRetries(configuration.getMaxRetries());
 
         // HTTP Proxy
         applyProxyIfNecessary(httpOptions);
