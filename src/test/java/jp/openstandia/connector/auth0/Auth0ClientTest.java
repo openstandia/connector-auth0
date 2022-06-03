@@ -2,19 +2,41 @@ package jp.openstandia.connector.auth0;
 
 import com.auth0.client.mgmt.filter.PageFilter;
 import com.auth0.exception.Auth0Exception;
+import com.auth0.json.auth.TokenHolder;
 import com.auth0.json.mgmt.Page;
 import com.auth0.json.mgmt.users.User;
 import com.auth0.json.mgmt.users.UsersPage;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assertions.*;
 
 class Auth0ClientTest {
+
+    @Test
+    void expiredAuth0Token() {
+        Auth0Client client = new Auth0Client();
+
+        // Given
+        // 1655111797586 = 2022/06/13 18:16:37.586 GMT+09:00
+        // 1655111737586 = 2022/06/13 18:15:37.586 GMT+09:00
+        // 1655111737587 = 2022/06/13 18:15:37.587 GMT+09:00
+        TokenHolder holder = new TokenHolder(null, null, null, "Bearer", 864000L, "openid", new Date(1655111797586L));
+        Date now1 = new Date(1655111737586L);
+        Date now2 = new Date(1655111737587L);
+
+        // When
+        boolean expired1 = client.isExpired(holder, now1);
+        boolean expired2 = client.isExpired(holder, now2);
+
+        // Then
+        assertFalse(expired1);
+        assertTrue(expired2);
+    }
 
     @Test
     void zeroWithFullPage() throws Auth0Exception {

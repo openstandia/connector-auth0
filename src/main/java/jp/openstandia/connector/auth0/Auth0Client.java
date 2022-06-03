@@ -101,8 +101,12 @@ public class Auth0Client {
     }
 
     protected void refreshToken() throws Auth0Exception {
+        refreshToken(false);
+    }
+
+    protected void refreshToken(boolean force) throws Auth0Exception {
         if (configuration.getClientId() != null && configuration.getClientSecret() != null) {
-            if (isExpired(tokenHolder)) {
+            if (force || isExpired(tokenHolder, new Date())) {
                 final AuthAPI[] authAPI = new AuthAPI[1];
                 configuration.getClientSecret().access(c -> {
                     HttpOptions httpOptions = new HttpOptions();
@@ -124,14 +128,14 @@ public class Auth0Client {
         }
     }
 
-    protected boolean isExpired(TokenHolder holder) {
+    protected boolean isExpired(TokenHolder holder, Date now) {
         if (holder == null) {
             return true;
         }
         long expiresAt = holder.getExpiresAt().getTime();
-        long now = new Date().getTime();
+        long nowTime = now.getTime();
 
-        if (expiresAt + (60 * 1000) > now) {
+        if (nowTime + (60 * 1000) > expiresAt) {
             LOG.ok("Detected the token is expired");
             return true;
         }
@@ -684,8 +688,8 @@ public class Auth0Client {
                 return response;
             } catch (APIException e) {
                 // If the api token is expired during paging process, refresh the token then retry
-                if (!retried && e.getStatusCode() == 401 && e.getError().equals("Invalid tokens.")) {
-                    refreshToken();
+                if (!retried && e.getStatusCode() == 401) {
+                    refreshToken(true);
                     retried = true;
                     continue;
                 }
