@@ -239,10 +239,11 @@ public class Auth0OrganizationHandler {
      * @param filter
      * @param resultsHandler
      * @param options
+     * @return
      * @throws Auth0Exception
      */
-    public void query(Auth0Filter filter,
-                      ResultsHandler resultsHandler, OperationOptions options) throws Auth0Exception {
+    public int query(Auth0Filter filter,
+                     ResultsHandler resultsHandler, OperationOptions options) throws Auth0Exception {
         // Create full attributesToGet by RETURN_DEFAULT_ATTRIBUTES + ATTRIBUTES_TO_GET
         Set<String> attributesToGet = createFullAttributesToGet(schema, options);
         boolean allowPartialAttributeValues = shouldAllowPartialAttributeValues(options);
@@ -250,29 +251,32 @@ public class Auth0OrganizationHandler {
         if (filter != null) {
             if (filter.isByName()) {
                 // Filter by __NANE__
-                getOrganizationByName(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
+                return getOrganizationByName(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
             } else {
                 // Filter by __UID__
-                getOrganizationByUid(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
+                return getOrganizationByUid(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
             }
-            return;
         }
 
-        client.getOrganizations(options, (org) -> resultsHandler.handle(toConnectorObject(org, attributesToGet, allowPartialAttributeValues)));
+        return client.getOrganizations(options, (org) -> resultsHandler.handle(toConnectorObject(org, attributesToGet, allowPartialAttributeValues)));
     }
 
-    private void getOrganizationByName(String orgName,
-                                       ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
+    private int getOrganizationByName(String orgName,
+                                      ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
         Organization org = client.getOrganizationByName(orgName);
 
         resultsHandler.handle(toConnectorObject(org, attributesToGet, allowPartialAttributeValues));
+
+        return 1;
     }
 
-    private void getOrganizationByUid(String orgId,
-                                      ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
+    private int getOrganizationByUid(String orgId,
+                                     ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
         Organization org = client.getOrganizationByUid(orgId);
 
         resultsHandler.handle(toConnectorObject(org, attributesToGet, allowPartialAttributeValues));
+
+        return 1;
     }
 
     private ConnectorObject toConnectorObject(Organization org, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {

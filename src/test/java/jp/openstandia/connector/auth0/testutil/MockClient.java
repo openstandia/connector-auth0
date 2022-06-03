@@ -108,8 +108,9 @@ public class MockClient extends Auth0Client {
     }
 
     @Override
-    public void getUsers(UserFilter userFilter, OperationOptions options, Auth0Client.ResultHandlerFunction<User, Boolean> resultsHandler) throws Auth0Exception {
+    public int getUsers(UserFilter userFilter, OperationOptions options, ResultHandlerFunction<User, Boolean> resultsHandler) throws Auth0Exception {
         getUsers.accept(userFilter, options, resultsHandler);
+        return 0;
     }
 
     @Override

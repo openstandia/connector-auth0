@@ -143,7 +143,7 @@ public class Auth0Client {
     public List<Connection> getConnection(ConnectionFilter connectionFilter) throws Auth0Exception {
         List<Connection> conns = new ArrayList<>();
 
-        withAuthPaging(connectionFilter, 0, 50, (filter) -> {
+        withAuthPaging(connectionFilter, 0, 50, (filter, ignore) -> {
             Request<ConnectionsPage> request = internalClient.connections().listAll(filter);
             ConnectionsPage response = request.execute();
 
@@ -224,15 +224,21 @@ public class Auth0Client {
         });
     }
 
-    public void getUsers(UserFilter userFilter, OperationOptions options, ResultHandlerFunction<User, Boolean> resultsHandler) throws Auth0Exception {
+    public int getUsers(UserFilter userFilter, OperationOptions options, ResultHandlerFunction<User, Boolean> resultsHandler) throws Auth0Exception {
         int pageInitialOffset = resolvePageOffset(options);
         int pageSize = resolvePageSize(configuration, options);
 
-        withAuthPaging(userFilter, pageInitialOffset, pageSize, (filter) -> {
+        return withAuthPaging(userFilter, pageInitialOffset, pageSize, (filter, skipCount) -> {
             Request<UsersPage> request = internalClient.users().list(filter);
             UsersPage response = request.execute();
 
+            int count = 0;
             for (User u : response.getItems()) {
+                if (count < skipCount) {
+                    count++;
+                    continue;
+                }
+
                 Boolean next = resultsHandler.apply(u);
                 if (!next) {
                     break;
@@ -260,7 +266,7 @@ public class Auth0Client {
     public List<Role> getRolesForUser(String userId) throws Auth0Exception {
         List<Role> roles = new ArrayList<>();
 
-        withAuthPaging(new PageFilter(), 0, 50, (filter) -> {
+        withAuthPaging(new PageFilter(), 0, 50, (filter, ignore) -> {
             Request<RolesPage> request = internalClient.users().listRoles(userId, filter);
             RolesPage response = request.execute();
 
@@ -297,7 +303,7 @@ public class Auth0Client {
     public List<Organization> getOrganizationsForUser(String userId) throws Auth0Exception {
         List<Organization> orgs = new ArrayList<>();
 
-        withAuthPaging(new PageFilter(), 0, 50, (filter) -> {
+        withAuthPaging(new PageFilter(), 0, 50, (filter, ignore) -> {
             Request<OrganizationsPage> request = internalClient.users().getOrganizations(userId, filter);
             OrganizationsPage response = request.execute();
 
@@ -334,7 +340,7 @@ public class Auth0Client {
 
         List<Organization> orgs = getOrganizationsForUser(userId);
         for (Organization org : orgs) {
-            withAuthPaging(new PageFilter(), 0, 50, (filter) -> {
+            withAuthPaging(new PageFilter(), 0, 50, (filter, ignore) -> {
                 Request<RolesPage> request = internalClient.organizations().getRoles(org.getId(), userId, filter);
                 RolesPage response = request.execute();
 
@@ -365,7 +371,7 @@ public class Auth0Client {
     public List<Permission> getPermissionsForUser(String userId) throws Auth0Exception {
         List<Permission> permissions = new ArrayList<>();
 
-        withAuthPaging(new PageFilter(), 0, 50, (filter) -> {
+        withAuthPaging(new PageFilter(), 0, 50, (filter, ignore) -> {
             Request<PermissionsPage> request = internalClient.users().listPermissions(userId, filter);
             PermissionsPage response = request.execute();
 
@@ -420,17 +426,23 @@ public class Auth0Client {
         });
     }
 
-    public void getRoles(OperationOptions options, ResultHandlerFunction<Role, Boolean> resultsHandler) throws Auth0Exception {
+    public int getRoles(OperationOptions options, ResultHandlerFunction<Role, Boolean> resultsHandler) throws Auth0Exception {
         int pageInitialOffset = resolvePageOffset(options);
         int pageSize = resolvePageSize(configuration, options);
 
         RolesFilter rolesFilter = new RolesFilter();
 
-        withAuthPaging(rolesFilter, pageInitialOffset, pageSize, (filter) -> {
+        return withAuthPaging(rolesFilter, pageInitialOffset, pageSize, (filter, skipCount) -> {
             Request<RolesPage> request = internalClient.roles().list(filter);
             RolesPage response = request.execute();
 
+            int count = 0;
             for (Role u : response.getItems()) {
+                if (count < skipCount) {
+                    count++;
+                    continue;
+                }
+
                 Boolean next = resultsHandler.apply(u);
                 if (!next) {
                     break;
@@ -458,7 +470,7 @@ public class Auth0Client {
     public List<Permission> getPermissionsForRole(String roleId) throws Auth0Exception {
         List<Permission> permissions = new ArrayList<>();
 
-        withAuthPaging(new PageFilter(), 0, 50, (filter) -> {
+        withAuthPaging(new PageFilter(), 0, 50, (filter, ignore) -> {
             Request<PermissionsPage> request = internalClient.roles().listPermissions(roleId, filter);
             PermissionsPage response = request.execute();
 
@@ -510,17 +522,23 @@ public class Auth0Client {
         });
     }
 
-    public void getOrganizations(OperationOptions options, ResultHandlerFunction<Organization, Boolean> resultsHandler) throws Auth0Exception {
+    public int getOrganizations(OperationOptions options, ResultHandlerFunction<Organization, Boolean> resultsHandler) throws Auth0Exception {
         int pageInitialOffset = resolvePageOffset(options);
         int pageSize = resolvePageSize(configuration, options);
 
-        PageFilter rolesFilter = new PageFilter();
+        PageFilter orgsFilter = new PageFilter();
 
-        withAuthPaging(rolesFilter, pageInitialOffset, pageSize, (filter) -> {
+        return withAuthPaging(orgsFilter, pageInitialOffset, pageSize, (filter, skipCount) -> {
             Request<OrganizationsPage> request = internalClient.organizations().list(filter);
             OrganizationsPage response = request.execute();
 
+            int count = 0;
             for (Organization u : response.getItems()) {
+                if (count < skipCount) {
+                    count++;
+                    continue;
+                }
+
                 Boolean next = resultsHandler.apply(u);
                 if (!next) {
                     break;
@@ -532,72 +550,129 @@ public class Auth0Client {
     }
 
     // Utilities
+    protected <T extends BaseFilter> int withAuthPaging(T filter, int pageOffset, int pageSize, PageFunction<T, Page<?>> callback) throws Auth0Exception {
+        withTotals(filter, true);
 
-    private <T extends PageFilter> void withAuthPaging(T filter, int initialOffset, int pageSize, PageFunction<T, Page<?>> callback) throws Auth0Exception {
-        int offset = initialOffset;
-        boolean retried = false;
+        PageInfo pageInfo = newPageInfo(pageOffset, pageSize);
 
-        filter.withTotals(true);
+        if (pageInfo.isRequestedFullPage()) {
+            // Start from page 0 in Auth0
+            int pageNumber = 0;
+            int total = 0;
 
-        while (true) {
-            filter.withPage(offset, pageSize);
+            while (true) {
+                withPage(filter, pageNumber, pageSize);
 
-            Page<?> result = withAuth(() -> {
-                Page<?> response = callback.apply(filter);
-                return response;
-            });
+                Page<?> result = withAuth(() -> {
+                    Page<?> response = callback.apply(filter, 0);
+                    return response;
+                });
 
-            if (hasNextPage(result)) {
-                offset++;
-                continue;
+                total = result.getTotal();
+                if (total == 0) {
+                    // Not found
+                    break;
+                }
+
+                if (hasNextPage(result)) {
+                    pageNumber++;
+                    continue;
+                }
+                break;
             }
-            break;
+            return total;
+
+        } else {
+            // Start from page 0 in Auth0, so need -1
+            int pageNumber = pageInfo.initPage - 1;
+            int total = 0;
+
+            for (int i = 0; i < pageInfo.times; i++) {
+                withPage(filter, pageNumber, pageSize);
+
+                final int skipCount = i == 0 ? pageInfo.skipCount : 0;
+
+                Page<?> result = withAuth(() -> {
+                    Page<?> response = callback.apply(filter, skipCount);
+                    return response;
+                });
+
+                total = result.getTotal();
+                if (total == 0) {
+                    // Not found
+                    break;
+                }
+
+                if (hasNextPage(result)) {
+                    pageNumber++;
+                    continue;
+                }
+                break;
+            }
+            return total;
         }
     }
 
-    private <T extends QueryFilter> void withAuthPaging(T filter, int initialOffset, int pageSize, PageFunction<T, Page<?>> callback) throws Auth0Exception {
-        int offset = initialOffset;
+    protected static class PageInfo {
+        public final int pageOffset;
+        public final int initPage;
+        public final int skipCount;
+        public final int times;
 
-        filter.withTotals(true);
+        public PageInfo(int pageOffset, int initPage, int skipCount, int times) {
+            this.pageOffset = pageOffset;
+            this.initPage = initPage;
+            this.skipCount = skipCount;
+            this.times = times;
+        }
 
-        while (true) {
-            filter.withPage(offset, pageSize);
-
-            Page<?> result = withAuth(() -> {
-                Page<?> response = callback.apply(filter);
-                return response;
-            });
-
-            if (hasNextPage(result)) {
-                offset++;
-                continue;
-            }
-            break;
+        public boolean isRequestedFullPage() {
+            return pageOffset == 0;
         }
     }
 
-    private <T extends ConnectionFilter> void withAuthPaging(T filter, int initialOffset, int pageSize, PageFunction<T, Page<?>> callback) throws Auth0Exception {
-        int offset = initialOffset;
+    protected static PageInfo newPageInfo(int pageOffset, int pageSize) {
+        if (pageOffset == 0) {
+            // Requested full page
+            return new PageInfo(pageOffset, 1, 0, -1);
 
-        filter.withTotals(true);
+        } else if ((pageOffset + pageSize - 1) % pageSize == 0) {
+            int initPage = (pageOffset + pageSize - 1) / pageSize;
+            return new PageInfo(pageOffset, initPage, 0, 1);
 
-        while (true) {
-            filter.withPage(offset, pageSize);
+        } else {
+            int initPage = ((pageOffset + pageSize - 1) / pageSize);
+            int skipCount = pageOffset - ((initPage - 1) * pageSize) -1;
 
-            Page<?> result = withAuth(() -> {
-                Page<?> response = callback.apply(filter);
-                return response;
-            });
-
-            if (hasNextPage(result)) {
-                offset++;
-                continue;
-            }
-            break;
+            return new PageInfo(pageOffset, initPage, skipCount, 2);
         }
     }
 
-    private <T> T withAuth(APIFunction<T> callback) throws Auth0Exception {
+    private void withTotals(BaseFilter filter, boolean includesTotal) {
+        if (filter instanceof PageFilter) {
+            ((PageFilter) filter).withTotals(includesTotal);
+
+        } else if (filter instanceof QueryFilter) {
+            ((QueryFilter) filter).withTotals(includesTotal);
+
+        } else if (filter instanceof ConnectionFilter) {
+            ((ConnectionFilter) filter).withTotals(includesTotal);
+        }
+    }
+
+    private void withPage(BaseFilter filter, int pageNumber, int pageSize) {
+        if (filter instanceof PageFilter) {
+            ((PageFilter) filter).withPage(pageNumber, pageSize);
+
+        } else if (filter instanceof QueryFilter) {
+            ((QueryFilter) filter).withPage(pageNumber, pageSize);
+
+        } else if (filter instanceof ConnectionFilter) {
+            ((ConnectionFilter) filter).withPage(pageNumber, pageSize);
+        }
+    }
+
+    protected <T> T withAuth(APIFunction<T> callback) throws Auth0Exception {
         boolean retried = false;
 
         // Refresh token if expired in advance
@@ -626,7 +701,7 @@ public class Auth0Client {
 
     @FunctionalInterface
     interface PageFunction<One, Result> {
-        public Result apply(One one) throws Auth0Exception;
+        public Result apply(One one, int skipCount) throws Auth0Exception;
     }
 
     @FunctionalInterface
@@ -635,7 +710,11 @@ public class Auth0Client {
     }
 
     private static boolean hasNextPage(Page<?> page) {
-        int remains = (page.getTotal() - page.getStart() + page.getLimit());
+        Integer length = page.getLength();
+        if (length == null) {
+            return false;
+        }
+        int remains = (page.getTotal() - (page.getStart() + length));
         return remains > 0;
     }
 }

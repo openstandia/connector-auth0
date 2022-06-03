@@ -202,6 +202,7 @@ public class Auth0Utils {
             for (String a : options.getAttributesToGet()) {
                 attributesToGet.add(a);
             }
+            attributesToGet.add(Uid.NAME);
         }
         return attributesToGet;
     }

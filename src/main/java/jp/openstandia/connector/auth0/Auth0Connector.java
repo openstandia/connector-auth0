@@ -23,10 +23,7 @@ import org.identityconnectors.common.logging.Log;
 import org.identityconnectors.framework.common.exceptions.*;
 import org.identityconnectors.framework.common.objects.*;
 import org.identityconnectors.framework.common.objects.filter.FilterTranslator;
-import org.identityconnectors.framework.spi.Configuration;
-import org.identityconnectors.framework.spi.ConnectorClass;
-import org.identityconnectors.framework.spi.InstanceNameAware;
-import org.identityconnectors.framework.spi.PoolableConnector;
+import org.identityconnectors.framework.spi.*;
 import org.identityconnectors.framework.spi.operations.*;
 
 import java.util.*;
@@ -35,6 +32,8 @@ import java.util.stream.Collectors;
 import static jp.openstandia.connector.auth0.Auth0OrganizationHandler.ORGANIZATION_OBJECT_CLASS;
 import static jp.openstandia.connector.auth0.Auth0RoleHandler.ROLE_OBJECT_CLASS;
 import static jp.openstandia.connector.auth0.Auth0UserHandler.USER_OBJECT_CLASS_PREFIX;
+import static jp.openstandia.connector.auth0.Auth0Utils.resolvePageOffset;
+import static jp.openstandia.connector.auth0.Auth0Utils.resolvePageSize;
 
 @ConnectorClass(configurationClass = Auth0Configuration.class, displayNameKey = "Auth0 Connector")
 public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaOp, DeleteOp, SchemaOp, TestOp, SearchOp<Auth0Filter>, InstanceNameAware {
@@ -105,7 +104,8 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
 
             schemaBuilder.defineOperationOption(OperationOptionInfoBuilder.buildAttributesToGet(), SearchOp.class);
             schemaBuilder.defineOperationOption(OperationOptionInfoBuilder.buildReturnDefaultAttributes(), SearchOp.class);
-
+            schemaBuilder.defineOperationOption(OperationOptionInfoBuilder.buildPageSize(), SearchOp.class);
+            schemaBuilder.defineOperationOption(OperationOptionInfoBuilder.buildPagedResultsOffset(), SearchOp.class);
 
             Map<String, AttributeInfo> roleSchemaMap = new HashMap<>();
             for (AttributeInfo a : roleSchemaInfo.getAttributeInfo()) {
@@ -231,20 +231,35 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
     @Override
     public void executeQuery(ObjectClass objectClass, Auth0Filter filter, ResultsHandler resultsHandler, OperationOptions options) {
         try {
+            int pageSize = resolvePageSize(configuration, options);
+            int pageOffset = resolvePageOffset(options);
+
+            int total = 0;
+
             if (objectClass.getObjectClassValue().startsWith(USER_OBJECT_CLASS_PREFIX)) {
                 Auth0UserHandler userHandler = new Auth0UserHandler(configuration, client, getSchemaMap(objectClass), resolveDatabaseConnection(objectClass));
-                userHandler.getUsers(filter, resultsHandler, options);
+                total = userHandler.getUsers(filter, resultsHandler, options);
 
             } else if (objectClass.equals(ROLE_OBJECT_CLASS)) {
                 Auth0RoleHandler roleHandler = new Auth0RoleHandler(configuration, client, getSchemaMap(objectClass));
-                roleHandler.getRoles(filter, resultsHandler, options);
+                total = roleHandler.getRoles(filter, resultsHandler, options);
 
             } else if (objectClass.equals(ORGANIZATION_OBJECT_CLASS)) {
                 Auth0OrganizationHandler organizationHandler = new Auth0OrganizationHandler(configuration, client, getSchemaMap(objectClass));
-                organizationHandler.query(filter, resultsHandler, options);
+                total = organizationHandler.query(filter, resultsHandler, options);
 
             } else {
                 throw new InvalidAttributeValueException("Unsupported object class " + objectClass);
+            }
+
+            if (resultsHandler instanceof SearchResultsHandler &&
+                    pageOffset > 0) {
+
+                int remaining = total - (pageSize * pageOffset);
+
+                SearchResultsHandler searchResultsHandler = (SearchResultsHandler) resultsHandler;
+                SearchResult searchResult = new SearchResult(null, remaining);
+                searchResultsHandler.handleResult(searchResult);
             }
         } catch (Exception e) {
             throw processException(e);
