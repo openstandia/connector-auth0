@@ -564,7 +564,7 @@ public class Auth0UserHandler {
         client.deleteUser(uid);
     }
 
-    public void getUsers(Auth0Filter filter, ResultsHandler resultsHandler, OperationOptions options) throws
+    public int getUsers(Auth0Filter filter, ResultsHandler resultsHandler, OperationOptions options) throws
             Auth0Exception {
         // Create full attributesToGet by RETURN_DEFAULT_ATTRIBUTES + ATTRIBUTES_TO_GET
         Set<String> attributesToGet = createFullAttributesToGet(schema, options);
@@ -574,33 +574,34 @@ public class Auth0UserHandler {
             if (filter.isByName()) {
                 // Filter by __NANE__
                 if (isSMS()) {
-                    getUserByPhoneNumber(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
+                    return getUserByPhoneNumber(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
                 } else {
-                    getUserByEmail(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
+                    return getUserByEmail(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
                 }
             } else {
                 // Filter by __UID__
-                getUserByUid(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
+                return getUserByUid(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
             }
-            return;
         }
 
         UserFilter userFilter = applyFieldsFilter(attributesToGet, new UserFilter(), ADDITIONAL_ALLOWED_FIELDS_SET)
                 .withQuery("identities.connection:\"" + connection + "\"");
 
-        client.getUsers(userFilter, options, (user) -> resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues)));
+        return client.getUsers(userFilter, options, (user) -> resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues)));
     }
 
-    private void getUserByUid(String userId, ResultsHandler resultsHandler, Set<String> attributesToGet,
-                              boolean allowPartialAttributeValues) throws Auth0Exception {
+    private int getUserByUid(String userId, ResultsHandler resultsHandler, Set<String> attributesToGet,
+                             boolean allowPartialAttributeValues) throws Auth0Exception {
         UserFilter filter = applyFieldsFilter(attributesToGet, new UserFilter(), Collections.emptySet());
         User user = client.getUserByUid(userId, filter);
 
         resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues));
+
+        return 1;
     }
 
-    private void getUserByPhoneNumber(String attrValue, ResultsHandler resultsHandler, Set<String> attributesToGet,
-                                      boolean allowPartialAttributeValues) throws Auth0Exception {
+    private int getUserByPhoneNumber(String attrValue, ResultsHandler resultsHandler, Set<String> attributesToGet,
+                                     boolean allowPartialAttributeValues) throws Auth0Exception {
         attrValue = attrValue.replace("\"", "\\\"");
         UserFilter filter = new UserFilter()
                 .withPage(0, 1)
@@ -612,10 +613,12 @@ public class Auth0UserHandler {
         for (User user : response) {
             resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues));
         }
+
+        return response.size();
     }
 
-    private void getUserByEmail(String email, ResultsHandler resultsHandler, Set<String> attributesToGet,
-                                boolean allowPartialAttributeValues) throws Auth0Exception {
+    private int getUserByEmail(String email, ResultsHandler resultsHandler, Set<String> attributesToGet,
+                               boolean allowPartialAttributeValues) throws Auth0Exception {
         email = email.replace("\"", "\\\"");
         UserFilter filter = new UserFilter()
                 .withPage(0, 1)
@@ -628,6 +631,8 @@ public class Auth0UserHandler {
         for (User user : response) {
             resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues));
         }
+
+        return response.size();
     }
 
     private ConnectorObject toConnectorObject(User user, Set<String> attributesToGet,
@@ -662,7 +667,9 @@ public class Auth0UserHandler {
         builderWrapper.apply(ATTR_NICKNAME, user.getNickname());
         builderWrapper.apply(ATTR_GIVEN_NAME, user.getGivenName());
         builderWrapper.apply(ATTR_FAMILY_NAME, user.getFamilyName());
-        builderWrapper.apply(ATTR_CONNECTION, user.getIdentities().stream().map(i -> i.getConnection()).collect(Collectors.toList()));
+        builderWrapper.apply(ATTR_CONNECTION, user.getIdentities() != null ?
+                user.getIdentities().stream().map(i -> i.getConnection()).collect(Collectors.toList()) :
+                null);
 
         if (allowPartialAttributeValues) {
             // Suppress fetching association

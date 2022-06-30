@@ -24,14 +24,14 @@ public class Auth0Configuration extends AbstractConfiguration {
     private String domain;
     private String clientId;
     private GuardedString clientSecret;
-    private Integer connectionTimeoutInSeconds = 10;
-    private Integer readTimeoutInSeconds = 10;
-    private Integer maxRetries = 3;
+    private int connectionTimeoutInSeconds = 10;
+    private int readTimeoutInSeconds = 10;
+    private int maxRetries = 3;
     private String httpProxyHost;
     private int httpProxyPort;
     private String httpProxyUser;
     private GuardedString httpProxyPassword;
-    private Integer defaultQueryPageSize = 50;
+    private int defaultQueryPageSize = 50;
     private String[] connectionFilter = new String[]{};
 
     @ConfigurationProperty(
@@ -96,11 +96,11 @@ public class Auth0Configuration extends AbstractConfiguration {
             helpMessageKey = "Connection timeout when connecting to Auth0. (Default: 10)",
             required = false,
             confidential = false)
-    public Integer getConnectionTimeoutInSeconds() {
+    public int getConnectionTimeoutInSeconds() {
         return connectionTimeoutInSeconds;
     }
 
-    public void setConnectionTimeoutInSeconds(Integer connectionTimeoutInSeconds) {
+    public void setConnectionTimeoutInSeconds(int connectionTimeoutInSeconds) {
         this.connectionTimeoutInSeconds = connectionTimeoutInSeconds;
     }
 
@@ -110,11 +110,11 @@ public class Auth0Configuration extends AbstractConfiguration {
             helpMessageKey = "Read timeout when fetching data from Auth0. (Default: 10)",
             required = false,
             confidential = false)
-    public Integer getReadTimeoutInSeconds() {
+    public int getReadTimeoutInSeconds() {
         return readTimeoutInSeconds;
     }
 
-    public void setReadTimeoutInSeconds(Integer readTimeoutInSeconds) {
+    public void setReadTimeoutInSeconds(int readTimeoutInSeconds) {
         this.readTimeoutInSeconds = readTimeoutInSeconds;
     }
 
@@ -124,11 +124,11 @@ public class Auth0Configuration extends AbstractConfiguration {
             helpMessageKey = "Sets the maximum number of consecutive retries for Auth0 Management API requests that fail due to rate-limits being reached. (Default: 3)",
             required = false,
             confidential = false)
-    public Integer getMaxRetries() {
+    public int getMaxRetries() {
         return maxRetries;
     }
 
-    public void setMaxRetries(Integer maxRetries) {
+    public void setMaxRetries(int maxRetries) {
         this.maxRetries = maxRetries;
     }
 
@@ -194,11 +194,11 @@ public class Auth0Configuration extends AbstractConfiguration {
             helpMessageKey = "Set default query page size. Default: 50",
             required = false,
             confidential = false)
-    public Integer getDefaultQueryPageSize() {
+    public int getDefaultQueryPageSize() {
         return defaultQueryPageSize;
     }
 
-    public void setDefaultQueryPageSize(Integer defaultQueryPageSize) {
+    public void setDefaultQueryPageSize(int defaultQueryPageSize) {
         this.defaultQueryPageSize = defaultQueryPageSize;
     }
 

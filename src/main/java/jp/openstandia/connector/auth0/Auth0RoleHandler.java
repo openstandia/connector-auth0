@@ -212,9 +212,10 @@ public class Auth0RoleHandler {
      * @param resultsHandler
      * @param options
      * @throws Auth0Exception
+     * @return
      */
-    public void getRoles(Auth0Filter filter,
-                         ResultsHandler resultsHandler, OperationOptions options) throws Auth0Exception {
+    public int getRoles(Auth0Filter filter,
+                        ResultsHandler resultsHandler, OperationOptions options) throws Auth0Exception {
         // Create full attributesToGet by RETURN_DEFAULT_ATTRIBUTES + ATTRIBUTES_TO_GET
         Set<String> attributesToGet = createFullAttributesToGet(schema, options);
         boolean allowPartialAttributeValues = shouldAllowPartialAttributeValues(options);
@@ -222,31 +223,34 @@ public class Auth0RoleHandler {
         if (filter != null) {
             if (filter.isByName()) {
                 // Filter by __NANE__
-                getRoleByName(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
+                return getRoleByName(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
             } else {
                 // Filter by __UID__
-                getRoleByUid(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
+                return getRoleByUid(filter.attributeValue, resultsHandler, attributesToGet, allowPartialAttributeValues);
             }
-            return;
         }
 
-        client.getRoles(options, (role) -> resultsHandler.handle(toConnectorObject(role, attributesToGet, allowPartialAttributeValues)));
+        return client.getRoles(options, (role) -> resultsHandler.handle(toConnectorObject(role, attributesToGet, allowPartialAttributeValues)));
     }
 
-    private void getRoleByName(String roleName,
-                               ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
+    private int getRoleByName(String roleName,
+                              ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
         List<Role> response = client.getRoleByName(roleName);
 
         for (Role role : response) {
             resultsHandler.handle(toConnectorObject(role, attributesToGet, allowPartialAttributeValues));
         }
+
+        return response.size();
     }
 
-    private void getRoleByUid(String roleId,
-                              ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
+    private int getRoleByUid(String roleId,
+                             ResultsHandler resultsHandler, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
         Role role = client.getRoleByUid(roleId);
 
         resultsHandler.handle(toConnectorObject(role, attributesToGet, allowPartialAttributeValues));
+
+        return 1;
     }
 
     private ConnectorObject toConnectorObject(Role role, Set<String> attributesToGet, boolean allowPartialAttributeValues) throws Auth0Exception {
