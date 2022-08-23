@@ -16,6 +16,9 @@
 package jp.openstandia.connector.auth0;
 
 import com.auth0.json.mgmt.Permission;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.identityconnectors.framework.common.exceptions.ConnectorIOException;
 import org.identityconnectors.framework.common.exceptions.InvalidAttributeValueException;
 import org.identityconnectors.framework.common.objects.*;
 
@@ -32,6 +35,8 @@ import java.util.stream.Collectors;
  */
 public class Auth0Utils {
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     public static ZonedDateTime toZoneDateTime(Date date) {
         ZoneId zone = ZoneId.systemDefault();
         return ZonedDateTime.ofInstant(date.toInstant(), zone);
@@ -39,6 +44,40 @@ public class Auth0Utils {
 
     public static Attribute buildDisable(final boolean value) {
         return AttributeBuilder.buildEnabled(!value);
+    }
+
+    public static List<AttributeInfo> toAttributeInfoList(String[] customSchema, String prefix) {
+        return Arrays.stream(customSchema).map(s -> {
+            String[] fieldAndType = s.split("\\$");
+            if (fieldAndType.length != 2) {
+                throw new InvalidAttributeValueException("Invalid custom schema definition: " + s);
+            }
+
+            String fieldName = fieldAndType[0];
+            String dataType = fieldAndType[1];
+
+            return AttributeInfoBuilder.define(prefix + "." + fieldName)
+                    .setType(resolveDataType(dataType))
+                    .setMultiValued(resolveMultiValued(dataType))
+                    .build();
+        }).collect(Collectors.toList());
+    }
+
+    private static Class<?> resolveDataType(String dataType) {
+        if (dataType.equalsIgnoreCase("string") || dataType.equalsIgnoreCase("stringArray")) {
+            return String.class;
+        } else if (dataType.equalsIgnoreCase("number") || dataType.equalsIgnoreCase("numberArray")) {
+            return Long.class;
+        } else if (dataType.equalsIgnoreCase("object")) {
+            // We treat as JSON string for the object
+            return String.class;
+        } else {
+            throw new InvalidAttributeValueException("Unknown dataType in the custom schema definition: " + dataType);
+        }
+    }
+
+    private static boolean resolveMultiValued(String dataType) {
+        return dataType.toLowerCase().endsWith("array");
     }
 
     public static class ConnectorObjectBuilderWrapper {
@@ -68,6 +107,27 @@ public class Auth0Utils {
                     addAttribute(attrName, value);
                 }
             }
+        }
+
+        public <T, R> void apply(Map<String, Object> metadata, String prefix) {
+            if (metadata == null) {
+                return;
+            }
+            metadata.entrySet().forEach(kv -> {
+                String attrName = prefix + "." + kv.getKey();
+                if (shouldReturn(attributesToGet, attrName)) {
+                    if (kv.getValue() instanceof Map) {
+                        try {
+                            String json = MAPPER.writeValueAsString(kv.getValue());
+                            addAttribute(attrName, json);
+                        } catch (JsonProcessingException e) {
+                            throw new ConnectorIOException(e);
+                        }
+                    } else {
+                        addAttribute(attrName, kv.getValue());
+                    }
+                }
+            });
         }
 
         public <T, R> void apply(String attrName, T value, Function<T, R> callback) {

@@ -33,6 +33,8 @@ public class Auth0Configuration extends AbstractConfiguration {
     private GuardedString httpProxyPassword;
     private int defaultQueryPageSize = 50;
     private String[] connectionFilter = new String[]{};
+    private String[] userMetadataSchema = new String[]{};
+    private String[] appMetadataSchema = new String[]{};
 
     @ConfigurationProperty(
             order = 1,
@@ -200,6 +202,36 @@ public class Auth0Configuration extends AbstractConfiguration {
 
     public void setDefaultQueryPageSize(int defaultQueryPageSize) {
         this.defaultQueryPageSize = defaultQueryPageSize;
+    }
+
+    @ConfigurationProperty(
+            order = 18,
+            displayMessageKey = "User Metadata Schema",
+            helpMessageKey = "Define custom schema for user metadata. The format is \"fieldName$dataType\". " +
+                    "The dataType is selected from \"string\", \"stringArray\", \"number\", \"numberArray\", and \"object\". ",
+            required = false,
+            confidential = false)
+    public String[] getUserMetadataSchema() {
+        return userMetadataSchema;
+    }
+
+    public void setAppMetadataSchema(String[] appMetadataSchema) {
+        this.appMetadataSchema = appMetadataSchema;
+    }
+
+    @ConfigurationProperty(
+            order = 19,
+            displayMessageKey = "App Metadata Schema",
+            helpMessageKey = "Define custom schema for app metadata. The format is \"fieldName$dataType\". " +
+                    "The dataType is selected from \"string\", \"stringArray\", \"number\", \"numberArray\", and \"object\". ",
+            required = false,
+            confidential = false)
+    public String[] getAppMetadataSchema() {
+        return appMetadataSchema;
+    }
+
+    public void setUserMetadataSchema(String[] userMetadataSchema) {
+        this.userMetadataSchema = userMetadataSchema;
     }
 
     @Override

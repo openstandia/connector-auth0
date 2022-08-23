@@ -23,13 +23,11 @@ import com.auth0.json.mgmt.Role;
 import com.auth0.json.mgmt.organizations.Organization;
 import com.auth0.json.mgmt.users.User;
 import org.identityconnectors.common.logging.Log;
+import org.identityconnectors.framework.common.exceptions.InvalidAttributeValueException;
 import org.identityconnectors.framework.common.objects.*;
 
 import java.time.ZonedDateTime;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -70,6 +68,9 @@ public class Auth0UserHandler {
     private static final String ATTR_EMAIL_VERIFIED = "email_verified";
     // Whether this phone number has been verified (true) or not (false).
     private static final String ATTR_PHONE_VERIFIED = "phone_verified";
+
+    private static final String ATTR_USER_METADATA = "user_metadata";
+    private static final String ATTR_APP_METADATA = "app_metadata";
 
     // Operation
     // Whether the user will receive a verification email after creation (true) or no email (false).
@@ -219,6 +220,12 @@ public class Auth0UserHandler {
                 .setType(Boolean.class)
                 .build());
 
+        // Custom user/app metadata
+        toAttributeInfoList(config.getUserMetadataSchema(), ATTR_USER_METADATA)
+                .forEach(a -> builder.addAttributeInfo(a));
+        toAttributeInfoList(config.getAppMetadataSchema(), ATTR_APP_METADATA)
+                .forEach(a -> builder.addAttributeInfo(a));
+
         // Operation
         builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_VERIFY_EMAIL)
                 .setType(Boolean.class)
@@ -312,6 +319,8 @@ public class Auth0UserHandler {
         List<Object> orgs = null;
         List<Object> orgRoles = null;
         List<Object> permissions = null;
+        MetadataCreator userMetadata = new MetadataCreator(schema);
+        MetadataCreator appMetadata = new MetadataCreator(schema);
 
         for (Attribute attr : attributes) {
             // __NAME__
@@ -361,6 +370,14 @@ public class Auth0UserHandler {
                 newUser.setVerifyPhoneNumber(AttributeUtil.getBooleanValue(attr));
             }
 
+            // user/app metadata
+            else if (attr.getName().startsWith(ATTR_USER_METADATA)) {
+                userMetadata.apply(attr, ATTR_USER_METADATA);
+
+            } else if (attr.getName().startsWith(ATTR_APP_METADATA)) {
+                appMetadata.apply(attr, ATTR_APP_METADATA);
+            }
+
             // Metadata
             else if (attr.getName().equals(OperationalAttributes.ENABLE_NAME)) {
                 newUser.setBlocked(!AttributeUtil.getBooleanValue(attr));
@@ -391,6 +408,13 @@ public class Auth0UserHandler {
             }
         }
 
+        if (!userMetadata.willCreate()) {
+            newUser.setUserMetadata(userMetadata.getMetadata());
+        }
+        if (!appMetadata.willCreate()) {
+            newUser.setAppMetadata(appMetadata.getMetadata());
+        }
+
         User response = client.createUser(newUser);
 
         Uid newUid = new Uid(response.getId(), new Name(isSMS() ? response.getPhoneNumber() : response.getEmail()));
@@ -405,6 +429,51 @@ public class Auth0UserHandler {
         associationHandler.addPermissionsToRole(newUid, permissions);
 
         return newUid;
+    }
+
+    private static class MetadataCreator {
+        private final Map<String, AttributeInfo> schema;
+        private Map<String, Object> metadata = null;
+
+        public MetadataCreator(Map<String, AttributeInfo> schema) {
+            this.schema = schema;
+        }
+
+        public void apply(Attribute attr, String prefix) {
+            AttributeInfo info = schema.get(attr.getName());
+            if (info == null || !info.getName().startsWith(prefix)) {
+                throw new InvalidAttributeValueException("Unknown metadata: " + attr.getName());
+            }
+
+            metadata = initIfNecessary(metadata, Object.class);
+
+            String fieldName = attr.getName().substring(prefix.length() + 1);
+            if (info.isMultiValued()) {
+                // The type of the value is string or long
+                metadata.put(fieldName, attr.getValue());
+            } else {
+                if (info.getType().isAssignableFrom(Long.class)) {
+                    metadata.put(fieldName, AttributeUtil.getLongValue(attr));
+                } else {
+                    metadata.put(fieldName, AttributeUtil.getAsStringValue(attr));
+                }
+            }
+        }
+
+        public boolean willCreate() {
+            return metadata != null && !metadata.isEmpty();
+        }
+
+        public Map<String, Object> getMetadata() {
+            return metadata;
+        }
+
+        private <T> Map<String, T> initIfNecessary(Map<String, T> map, Class<T> clazz) {
+            if (map == null) {
+                return new HashMap<String, T>();
+            }
+            return map;
+        }
     }
 
     /**
@@ -431,6 +500,8 @@ public class Auth0UserHandler {
         List<Object> orgRolesToRemove = null;
         List<Object> permissionsToAdd = null;
         List<Object> permissionsToRemove = null;
+        MetadataUpdater userMetadata = new MetadataUpdater(schema);
+        MetadataUpdater appMetadata = new MetadataUpdater(schema);
 
         boolean doUpdateUser = false;
 
@@ -500,6 +571,16 @@ public class Auth0UserHandler {
                 doUpdateUser = true;
             }
 
+            // user/app metadata
+            else if (delta.getName().startsWith(ATTR_USER_METADATA)) {
+                userMetadata.apply(delta, ATTR_USER_METADATA);
+                doUpdateUser = true;
+
+            } else if (delta.getName().startsWith(ATTR_APP_METADATA)) {
+                appMetadata.apply(delta, ATTR_APP_METADATA);
+                doUpdateUser = true;
+            }
+
             // Metadata
             else if (delta.getName().equals(OperationalAttributes.ENABLE_NAME)) {
                 modifyUser.setBlocked(!AttributeDeltaUtil.getBooleanValue(delta));
@@ -537,6 +618,27 @@ public class Auth0UserHandler {
         }
 
         if (doUpdateUser) {
+            // If the delta contains changes of multivalued field in user/app metadata,
+            // we need to fetch the current metadata before updating it to merge the values.
+            Map<String, Object> currentUserMetadata = null;
+            Map<String, Object> currentAppMetadata = null;
+            if (userMetadata.hasMultivaluedChange() || appMetadata.hasMultivaluedChange()) {
+                UserFilter filter = new UserFilter();
+                if (userMetadata.hasMultivaluedChange()) {
+                    filter.withFields(ATTR_USER_METADATA, true);
+                }
+                if (appMetadata.hasMultivaluedChange()) {
+                    filter.withFields(ATTR_APP_METADATA, true);
+                }
+                User current = client.getUserByUid(uid.getUidValue(), filter);
+                currentUserMetadata = current.getUserMetadata();
+                currentAppMetadata = current.getAppMetadata();
+            }
+            if (userMetadata.willUpdate()) {
+                modifyUser.setUserMetadata(userMetadata.getMetadata(currentUserMetadata));
+                modifyUser.setAppMetadata(appMetadata.getMetadata(currentAppMetadata));
+            }
+
             client.updateUser(uid, modifyUser);
         }
 
@@ -550,6 +652,109 @@ public class Auth0UserHandler {
         associationHandler.updateRolesToUser(uid, permissionsToAdd, permissionsToRemove);
 
         return null;
+    }
+
+    private static class MetadataUpdater {
+        private final Map<String, AttributeInfo> schema;
+
+        // For update
+        Map<String, Object> metadataToReplace = null;
+        Map<String, List> metadataToAdd = null;
+        Map<String, List> metadataToRemove = null;
+
+        public MetadataUpdater(Map<String, AttributeInfo> schema) {
+            this.schema = schema;
+        }
+
+        public void apply(AttributeDelta delta, String prefix) {
+            AttributeInfo info = schema.get(delta.getName());
+            if (info == null || !info.getName().startsWith(prefix)) {
+                throw new InvalidAttributeValueException("Unknown metadata: " + delta.getName());
+            }
+
+            String fieldName = delta.getName().substring(prefix.length() + 1);
+            if (info.isMultiValued()) {
+                List<Object> valuesToAdd = delta.getValuesToAdd();
+                List<Object> valuesToRemove = delta.getValuesToRemove();
+
+                if (valuesToAdd != null) {
+                    metadataToAdd = initIfNecessary(metadataToAdd, List.class);
+                    metadataToAdd.put(fieldName, valuesToAdd);
+                }
+                if (valuesToRemove != null) {
+                    metadataToRemove = initIfNecessary(metadataToRemove, List.class);
+                    metadataToRemove.put(fieldName, valuesToRemove);
+                }
+            } else {
+                metadataToReplace = initIfNecessary(metadataToReplace, Object.class);
+
+                if (info.getType().isAssignableFrom(Long.class)) {
+                    metadataToReplace.put(fieldName, AttributeDeltaUtil.getBigDecimalValue(delta));
+                } else {
+                    metadataToReplace.put(fieldName, AttributeDeltaUtil.getAsStringValue(delta));
+                }
+            }
+        }
+
+        public boolean willUpdate() {
+            return hasChange(metadataToReplace, metadataToAdd, metadataToRemove);
+        }
+
+        public boolean hasMultivaluedChange() {
+            return hasChange(metadataToAdd, metadataToRemove);
+        }
+
+        public Map<String, Object> getMetadata(Map<String, Object> currentMetadata) {
+            Map<String, Object> result;
+            if (currentMetadata == null) {
+                result = new HashMap<>();
+            } else {
+                result = currentMetadata;
+            }
+
+            if (hasMultivaluedChange()) {
+                // For multiple values, merge with current metadata
+                if (hasChange(metadataToRemove)) {
+                    for (Map.Entry<String, List> kv : metadataToRemove.entrySet()) {
+                        Object cv = currentMetadata.get(kv.getKey());
+                        if (cv != null && cv instanceof List) {
+                            ((List) cv).removeAll(kv.getValue());
+                        }
+                    }
+                }
+                if (hasChange(metadataToAdd)) {
+                    for (Map.Entry<String, List> kv : metadataToAdd.entrySet()) {
+                        Object cv = currentMetadata.get(kv.getKey());
+                        if (cv != null && cv instanceof List) {
+                            ((List) cv).addAll(kv.getValue());
+                        } else {
+                            currentMetadata.put(kv.getKey(), kv.getValue());
+                        }
+                    }
+                }
+            }
+            if (hasChange(metadataToReplace)) {
+                for (Map.Entry<String, Object> kv : metadataToReplace.entrySet()) {
+                    result.put(kv.getKey(), kv.getValue());
+                }
+            }
+
+            return result;
+        }
+
+        private <T> Map<String, T> initIfNecessary(Map<String, T> map, Class<T> clazz) {
+            if (map == null) {
+                return new HashMap<String, T>();
+            }
+            return map;
+        }
+
+        private boolean hasChange(Map<?, ?>... map) {
+            if (map == null) {
+                return true;
+            }
+            return Arrays.stream(map).anyMatch(m -> m != null && !m.isEmpty());
+        }
     }
 
     /**
@@ -670,6 +875,10 @@ public class Auth0UserHandler {
         builderWrapper.apply(ATTR_CONNECTION, user.getIdentities() != null ?
                 user.getIdentities().stream().map(i -> i.getConnection()).collect(Collectors.toList()) :
                 null);
+
+        // user/app metadata
+        builderWrapper.apply(user.getUserMetadata(), ATTR_USER_METADATA);
+        builderWrapper.apply(user.getAppMetadata(), ATTR_APP_METADATA);
 
         if (allowPartialAttributeValues) {
             // Suppress fetching association
