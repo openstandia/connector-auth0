@@ -17,6 +17,7 @@ package jp.openstandia.connector.auth0;
 
 import com.auth0.client.mgmt.filter.FieldsFilter;
 import com.auth0.client.mgmt.filter.UserFilter;
+import com.auth0.exception.APIException;
 import com.auth0.exception.Auth0Exception;
 import com.auth0.json.mgmt.Permission;
 import com.auth0.json.mgmt.Role;
@@ -798,11 +799,23 @@ public class Auth0UserHandler {
     private int getUserByUid(String userId, ResultsHandler resultsHandler, Set<String> attributesToGet,
                              boolean allowPartialAttributeValues) throws Auth0Exception {
         UserFilter filter = applyFieldsFilter(attributesToGet, new UserFilter(), Collections.emptySet());
-        User user = client.getUserByUid(userId, filter);
+        try {
+            User user = client.getUserByUid(userId, filter);
 
-        resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues));
+            resultsHandler.handle(toConnectorObject(user, attributesToGet, allowPartialAttributeValues));
+        } catch (APIException e) {
+            return handleSearchError(e);
+        }
 
         return 1;
+    }
+
+    private int handleSearchError(APIException e) throws APIException {
+        // We should not return any object, throw UnknownUidException when no such object
+        if (e.getStatusCode() == 404) {
+            return 0;
+        }
+        throw e;
     }
 
     private int getUserByPhoneNumber(String attrValue, ResultsHandler resultsHandler, Set<String> attributesToGet,
