@@ -637,6 +637,8 @@ public class Auth0UserHandler {
             }
             if (userMetadata.willUpdate()) {
                 modifyUser.setUserMetadata(userMetadata.getMetadata(currentUserMetadata));
+            }
+            if (appMetadata.willUpdate()) {
                 modifyUser.setAppMetadata(appMetadata.getMetadata(currentAppMetadata));
             }
 
