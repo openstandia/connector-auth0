@@ -385,7 +385,7 @@ public class Auth0UserHandler {
 
             } else if (attr.getName().equals(OperationalAttributes.PASSWORD_NAME)) {
                 AttributeUtil.getGuardedStringValue(attr).access(c -> {
-                    newUser.setPassword(c);
+                    newUser.setPassword(c.clone());
                 });
             }
 
@@ -589,7 +589,7 @@ public class Auth0UserHandler {
 
             } else if (delta.getName().equals(OperationalAttributes.PASSWORD_NAME)) {
                 AttributeDeltaUtil.getGuardedStringValue(delta).access(c -> {
-                    modifyUser.setPassword(c);
+                    modifyUser.setPassword(c.clone());
                 });
                 doUpdateUser = true;
             }
