@@ -82,7 +82,7 @@ public class Auth0Client {
             ProxyOptions proxyOptions = new ProxyOptions(proxy);
             if (StringUtil.isNotEmpty(configuration.getHttpProxyUser())) {
                 configuration.getHttpProxyPassword().access(c -> {
-                    proxyOptions.setBasicAuthentication(configuration.getHttpProxyUser(), c);
+                    proxyOptions.setBasicAuthentication(configuration.getHttpProxyUser(), c.clone());
                 });
             }
             httpOptions.setProxyOptions(proxyOptions);
