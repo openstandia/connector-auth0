@@ -409,10 +409,10 @@ public class Auth0UserHandler {
             }
         }
 
-        if (!userMetadata.willCreate()) {
+        if (userMetadata.willCreate()) {
             newUser.setUserMetadata(userMetadata.getMetadata());
         }
-        if (!appMetadata.willCreate()) {
+        if (appMetadata.willCreate()) {
             newUser.setAppMetadata(appMetadata.getMetadata());
         }
 
