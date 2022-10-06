@@ -409,10 +409,10 @@ public class Auth0UserHandler {
             }
         }
 
-        if (!userMetadata.willCreate()) {
+        if (userMetadata.willCreate()) {
             newUser.setUserMetadata(userMetadata.getMetadata());
         }
-        if (!appMetadata.willCreate()) {
+        if (appMetadata.willCreate()) {
             newUser.setAppMetadata(appMetadata.getMetadata());
         }
 
@@ -719,19 +719,23 @@ public class Auth0UserHandler {
                 // For multiple values, merge with current metadata
                 if (hasChange(metadataToRemove)) {
                     for (Map.Entry<String, List> kv : metadataToRemove.entrySet()) {
-                        Object cv = currentMetadata.get(kv.getKey());
+                        Object cv = result.get(kv.getKey());
                         if (cv != null && cv instanceof List) {
                             ((List) cv).removeAll(kv.getValue());
+                            // Remove empty array in the metadata map
+                            if (((List) cv).isEmpty()) {
+                                result.remove(kv.getKey());
+                            }
                         }
                     }
                 }
                 if (hasChange(metadataToAdd)) {
                     for (Map.Entry<String, List> kv : metadataToAdd.entrySet()) {
-                        Object cv = currentMetadata.get(kv.getKey());
+                        Object cv = result.get(kv.getKey());
                         if (cv != null && cv instanceof List) {
                             ((List) cv).addAll(kv.getValue());
                         } else {
-                            currentMetadata.put(kv.getKey(), kv.getValue());
+                            result.put(kv.getKey(), kv.getValue());
                         }
                     }
                 }
