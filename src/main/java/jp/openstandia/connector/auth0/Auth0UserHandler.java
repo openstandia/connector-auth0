@@ -722,9 +722,11 @@ public class Auth0UserHandler {
                         Object cv = result.get(kv.getKey());
                         if (cv != null && cv instanceof List) {
                             ((List) cv).removeAll(kv.getValue());
-                            // Remove empty array in the metadata map
+                            // Remove empty array in the metadata map by setting null
+                            // Caution: Removing key in not affected when the metadata contains other keys
+                            // because Auth0 API can't be detected the delta
                             if (((List) cv).isEmpty()) {
-                                result.remove(kv.getKey());
+                                result.put(kv.getKey(), null);
                             }
                         }
                     }
