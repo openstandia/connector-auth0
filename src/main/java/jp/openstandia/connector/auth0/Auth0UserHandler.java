@@ -643,7 +643,7 @@ public class Auth0UserHandler {
         associationHandler.updateRolesToUser(uid, rolesToAdd, rolesToRemove);
         associationHandler.updateOrganizationsToUser(uid, orgsToAdd, orgsToRemove);
         associationHandler.updateOrganizationRolesToUser(uid, orgRolesToAdd, orgRolesToRemove);
-        associationHandler.updateRolesToUser(uid, permissionsToAdd, permissionsToRemove);
+        associationHandler.updatePermissionsToUser(uid, permissionsToAdd, permissionsToRemove);
 
         return null;
     }
