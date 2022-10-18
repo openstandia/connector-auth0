@@ -18,6 +18,7 @@ package jp.openstandia.connector.auth0;
 import com.auth0.json.mgmt.Permission;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.identityconnectors.common.logging.Log;
 import org.identityconnectors.framework.common.exceptions.ConnectorIOException;
 import org.identityconnectors.framework.common.exceptions.InvalidAttributeValueException;
 import org.identityconnectors.framework.common.objects.*;
@@ -35,6 +36,7 @@ import java.util.stream.Collectors;
  */
 public class Auth0Utils {
 
+    private static final Log LOGGER = Log.getLog(Auth0Utils.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     public static ZonedDateTime toZoneDateTime(Date date) {
@@ -56,19 +58,24 @@ public class Auth0Utils {
             String fieldName = fieldAndType[0];
             String dataType = fieldAndType[1];
 
-            return AttributeInfoBuilder.define(prefix + "." + fieldName)
+            AttributeInfoBuilder builder = AttributeInfoBuilder.define(prefix + "." + fieldName)
                     .setType(resolveDataType(dataType))
-                    .setMultiValued(resolveMultiValued(dataType))
-                    .build();
+                    .setMultiValued(resolveMultiValued(dataType));
+
+            if (dataType.equalsIgnoreCase("object") || dataType.equalsIgnoreCase("objectArray")) {
+                builder.setSubtype(AttributeInfo.Subtypes.STRING_JSON);
+            }
+
+            return builder.build();
         }).collect(Collectors.toList());
     }
 
     private static Class<?> resolveDataType(String dataType) {
         if (dataType.equalsIgnoreCase("string") || dataType.equalsIgnoreCase("stringArray")) {
             return String.class;
-        } else if (dataType.equalsIgnoreCase("number") || dataType.equalsIgnoreCase("numberArray")) {
+        } else if (dataType.equalsIgnoreCase("long") || dataType.equalsIgnoreCase("longArray")) {
             return Long.class;
-        } else if (dataType.equalsIgnoreCase("object")) {
+        } else if (dataType.equalsIgnoreCase("object") || dataType.equalsIgnoreCase("objectArray")) {
             // We treat as JSON string for the object
             return String.class;
         } else {
@@ -78,6 +85,35 @@ public class Auth0Utils {
 
     private static boolean resolveMultiValued(String dataType) {
         return dataType.toLowerCase().endsWith("array");
+    }
+
+    public static Object resolveMetadataAttributeValue(AttributeInfo info, Attribute attr) {
+        if (info.isMultiValued()) {
+            return attr.getValue().stream()
+                    .map(v -> resolveMetadataValue(info, v))
+                    .filter(v -> v != null)
+                    .collect(Collectors.toList());
+        }
+
+        return resolveMetadataValue(info, AttributeUtil.getSingleValue(attr));
+    }
+
+    public static Object resolveMetadataValue(AttributeInfo info, Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (info.getType().isAssignableFrom(Long.class)) {
+            return value;
+        } else {
+            if (AttributeInfo.Subtypes.STRING_JSON.toString().equals(info.getSubtype())) {
+                try {
+                    return MAPPER.readValue(value.toString(), Map.class);
+                } catch (JsonProcessingException e) {
+                    throw new InvalidAttributeValueException("Invalid JSON text: " + value);
+                }
+            }
+            return value.toString();
+        }
     }
 
     public static class ConnectorObjectBuilderWrapper {
@@ -109,25 +145,64 @@ public class Auth0Utils {
             }
         }
 
-        public <T, R> void apply(Map<String, Object> metadata, String prefix) {
+        public <T, R> void apply(Map<String, AttributeInfo> schema, Map<String, Object> metadata, String prefix) {
             if (metadata == null) {
                 return;
             }
             metadata.entrySet().forEach(kv -> {
                 String attrName = prefix + "." + kv.getKey();
                 if (shouldReturn(attributesToGet, attrName)) {
-                    if (kv.getValue() instanceof Map) {
-                        try {
-                            String json = MAPPER.writeValueAsString(kv.getValue());
-                            addAttribute(attrName, json);
-                        } catch (JsonProcessingException e) {
-                            throw new ConnectorIOException(e);
-                        }
-                    } else {
-                        addAttribute(attrName, kv.getValue());
+                    AttributeInfo info = schema.get(attrName);
+                    if (info == null) {
+                        LOGGER.warn("Detected undefined item in {}, ignored. key: {}, value: {}", prefix, kv.getKey(), kv.getValue());
+                        return;
                     }
+
+                    if (kv.getValue() == null) {
+                        return;
+                    }
+
+                    if (info.isMultiValued()) {
+                        Object values = kv.getValue();
+                        if (!(values instanceof List)) {
+                            return;
+                        }
+                        List<Object> resolveValues = ((List<?>) values).stream()
+                                .map(v -> resolveMetadataRawValue(info, v))
+                                .filter(v -> v != null)
+                                .collect(Collectors.toList());
+                        addAttribute(attrName, resolveValues);
+                        return;
+                    }
+
+                    // Single Value
+                    addAttribute(attrName, resolveMetadataRawValue(info, kv.getValue()));
                 }
             });
+        }
+
+        private static Object resolveMetadataRawValue(AttributeInfo info, Object value) {
+            if (value == null) {
+                return null;
+            }
+
+            if (info.getType().isAssignableFrom(Long.class)) {
+                if (value instanceof Number) {
+                    return ((Number) value).longValue();
+                }
+                return null;
+
+            } else {
+                if (AttributeInfo.Subtypes.STRING_JSON.toString().equals(info.getSubtype()) && value instanceof Map) {
+                    try {
+                        String json = MAPPER.writeValueAsString(value);
+                        return json;
+                    } catch (JsonProcessingException e) {
+                        throw new ConnectorIOException("Invalid JSON object: " + value, e);
+                    }
+                }
+                return value.toString();
+            }
         }
 
         public <T, R> void apply(String attrName, T value, Function<T, R> callback) {
