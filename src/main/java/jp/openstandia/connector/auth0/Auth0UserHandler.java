@@ -449,16 +449,7 @@ public class Auth0UserHandler {
             metadata = initIfNecessary(metadata, Object.class);
 
             String fieldName = attr.getName().substring(prefix.length() + 1);
-            if (info.isMultiValued()) {
-                // The type of the value is string or long
-                metadata.put(fieldName, attr.getValue());
-            } else {
-                if (info.getType().isAssignableFrom(Long.class)) {
-                    metadata.put(fieldName, AttributeUtil.getLongValue(attr));
-                } else {
-                    metadata.put(fieldName, AttributeUtil.getAsStringValue(attr));
-                }
-            }
+            metadata.put(fieldName, resolveMetadataAttributeValue(info, attr));
         }
 
         public boolean willCreate() {
@@ -652,7 +643,7 @@ public class Auth0UserHandler {
         associationHandler.updateRolesToUser(uid, rolesToAdd, rolesToRemove);
         associationHandler.updateOrganizationsToUser(uid, orgsToAdd, orgsToRemove);
         associationHandler.updateOrganizationRolesToUser(uid, orgRolesToAdd, orgRolesToRemove);
-        associationHandler.updateRolesToUser(uid, permissionsToAdd, permissionsToRemove);
+        associationHandler.updatePermissionsToUser(uid, permissionsToAdd, permissionsToRemove);
 
         return null;
     }
@@ -682,20 +673,15 @@ public class Auth0UserHandler {
 
                 if (valuesToAdd != null) {
                     metadataToAdd = initIfNecessary(metadataToAdd, List.class);
-                    metadataToAdd.put(fieldName, valuesToAdd);
+                    metadataToAdd.put(fieldName, valuesToAdd.stream().map(v -> resolveMetadataValue(info, v)).collect(Collectors.toList()));
                 }
                 if (valuesToRemove != null) {
                     metadataToRemove = initIfNecessary(metadataToRemove, List.class);
-                    metadataToRemove.put(fieldName, valuesToRemove);
+                    metadataToRemove.put(fieldName, valuesToRemove.stream().map(v -> resolveMetadataValue(info, v)).collect(Collectors.toList()));
                 }
             } else {
                 metadataToReplace = initIfNecessary(metadataToReplace, Object.class);
-
-                if (info.getType().isAssignableFrom(Long.class)) {
-                    metadataToReplace.put(fieldName, AttributeDeltaUtil.getBigDecimalValue(delta));
-                } else {
-                    metadataToReplace.put(fieldName, AttributeDeltaUtil.getAsStringValue(delta));
-                }
+                metadataToReplace.put(fieldName, resolveMetadataValue(info, AttributeDeltaUtil.getSingleValue(delta)));
             }
         }
 
@@ -722,9 +708,11 @@ public class Auth0UserHandler {
                         Object cv = result.get(kv.getKey());
                         if (cv != null && cv instanceof List) {
                             ((List) cv).removeAll(kv.getValue());
-                            // Remove empty array in the metadata map
+                            // Remove empty array in the metadata map by setting null
+                            // Caution: Removing key in not affected when the metadata contains other keys
+                            // because Auth0 API can't be detected the delta
                             if (((List) cv).isEmpty()) {
-                                result.remove(kv.getKey());
+                                result.put(kv.getKey(), null);
                             }
                         }
                     }
@@ -896,8 +884,8 @@ public class Auth0UserHandler {
                 null);
 
         // user/app metadata
-        builderWrapper.apply(user.getUserMetadata(), ATTR_USER_METADATA);
-        builderWrapper.apply(user.getAppMetadata(), ATTR_APP_METADATA);
+        builderWrapper.apply(schema, user.getUserMetadata(), ATTR_USER_METADATA);
+        builderWrapper.apply(schema, user.getAppMetadata(), ATTR_APP_METADATA);
 
         if (allowPartialAttributeValues) {
             // Suppress fetching association

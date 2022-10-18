@@ -23,14 +23,19 @@ import org.identityconnectors.framework.common.objects.OperationOptionsBuilder;
 import org.identityconnectors.framework.common.objects.Uid;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class UserUpdateTest extends AbstractTest {
+
+    @Override
+    protected Auth0Configuration newConfiguration() {
+        Auth0Configuration conf = super.newConfiguration();
+        conf.setAppMetadataSchema(new String[]{"text1$string", "text2$stringArray",});
+        return conf;
+    }
 
     @Test
     void disableUser() {
@@ -54,5 +59,157 @@ class UserUpdateTest extends AbstractTest {
 
         User patchUser = updated.get();
         assertTrue(patchUser.isBlocked());
+    }
+
+    @Test
+    void deleteAppMetadataSingleValue() {
+        // Given
+        String userId = "auth0|61c5cc0078d9e300758160d6";
+
+        Set<AttributeDelta> delta = new HashSet<>();
+        delta.add(AttributeDeltaBuilder.build("app_metadata.text1", (String) null));
+
+        AtomicReference<User> updated = new AtomicReference<>();
+        mockClient.getUserByUid = ((uid, filter) -> {
+            User user = new User();
+            user.setId(userId);
+            Map<String, Object> currentAppMetadata = new HashMap<>();
+            currentAppMetadata.put("text", "a");
+            user.setAppMetadata(currentAppMetadata);
+            return user;
+        });
+        mockClient.updateUser = ((uid, patchUser) -> {
+            updated.set(patchUser);
+            return;
+        });
+
+        // When
+        Set<AttributeDelta> result = connector.updateDelta(DEFAULT_USER_OBJECT_CLASS, new Uid(userId), delta, new OperationOptionsBuilder().build());
+
+        // Then
+        assertNull(result);
+
+        User patchUser = updated.get();
+        assertFalse(patchUser.getAppMetadata().isEmpty());
+        assertEquals(1, patchUser.getAppMetadata().size());
+        assertTrue(patchUser.getAppMetadata().containsKey("text1"));
+        assertNull(patchUser.getAppMetadata().get("text1"));
+    }
+
+    @Test
+    void deleteAppMetadataMultipleValues() {
+        // Given
+        String userId = "auth0|61c5cc0078d9e300758160d6";
+
+        Set<AttributeDelta> delta = new HashSet<>();
+        delta.add(AttributeDeltaBuilder.build("app_metadata.text2", null, Arrays.asList("a")));
+
+        AtomicReference<User> updated = new AtomicReference<>();
+        mockClient.getUserByUid = ((uid, filter) -> {
+            User user = new User();
+            user.setId(userId);
+            Map<String, Object> currentAppMetadata = new HashMap<>();
+            List<String> values = new ArrayList<>();
+            values.add("a");
+            values.add("b");
+            currentAppMetadata.put("text2", values);
+            user.setAppMetadata(currentAppMetadata);
+            return user;
+        });
+        mockClient.updateUser = ((uid, patchUser) -> {
+            updated.set(patchUser);
+            return;
+        });
+
+        // When
+        Set<AttributeDelta> result = connector.updateDelta(DEFAULT_USER_OBJECT_CLASS, new Uid(userId), delta, new OperationOptionsBuilder().build());
+
+        // Then
+        assertNull(result);
+
+        User patchUser = updated.get();
+        assertFalse(patchUser.getAppMetadata().isEmpty());
+        assertEquals(1, patchUser.getAppMetadata().size());
+        assertTrue(patchUser.getAppMetadata().containsKey("text2"));
+        assertEquals(1, ((List) patchUser.getAppMetadata().get("text2")).size());
+        assertEquals("b", ((List) patchUser.getAppMetadata().get("text2")).get(0));
+    }
+
+    @Test
+    void deleteAppMetadataMultipleValuesAll() {
+        // Given
+        String userId = "auth0|61c5cc0078d9e300758160d6";
+
+        Set<AttributeDelta> delta = new HashSet<>();
+        delta.add(AttributeDeltaBuilder.build("app_metadata.text2", null, Arrays.asList("a", "b")));
+
+        AtomicReference<User> updated = new AtomicReference<>();
+        mockClient.getUserByUid = ((uid, filter) -> {
+            User user = new User();
+            user.setId(userId);
+            Map<String, Object> currentAppMetadata = new HashMap<>();
+            List<String> values = new ArrayList<>();
+            values.add("a");
+            values.add("b");
+            currentAppMetadata.put("text2", values);
+            user.setAppMetadata(currentAppMetadata);
+            return user;
+        });
+        mockClient.updateUser = ((uid, patchUser) -> {
+            updated.set(patchUser);
+            return;
+        });
+
+        // When
+        Set<AttributeDelta> result = connector.updateDelta(DEFAULT_USER_OBJECT_CLASS, new Uid(userId), delta, new OperationOptionsBuilder().build());
+
+        // Then
+        assertNull(result);
+
+        User patchUser = updated.get();
+        assertEquals(1, patchUser.getAppMetadata().size());
+        assertTrue(patchUser.getAppMetadata().containsKey("text2"));
+        assertNull(patchUser.getAppMetadata().get("text2"));
+    }
+
+
+    @Test
+    void deleteAppMetadataAllMultiValuesAllButSingleValueRemains() {
+        // Given
+        String userId = "auth0|61c5cc0078d9e300758160d6";
+
+        Set<AttributeDelta> delta = new HashSet<>();
+        delta.add(AttributeDeltaBuilder.build("app_metadata.text2", null, Arrays.asList("a", "b")));
+
+        AtomicReference<User> updated = new AtomicReference<>();
+        mockClient.getUserByUid = ((uid, filter) -> {
+            User user = new User();
+            user.setId(userId);
+            Map<String, Object> currentAppMetadata = new HashMap<>();
+            currentAppMetadata.put("text1", "a");
+            List<String> values = new ArrayList<>();
+            values.add("a");
+            values.add("b");
+            currentAppMetadata.put("text2", values);
+            user.setAppMetadata(currentAppMetadata);
+            return user;
+        });
+        mockClient.updateUser = ((uid, patchUser) -> {
+            updated.set(patchUser);
+            return;
+        });
+
+        // When
+        Set<AttributeDelta> result = connector.updateDelta(DEFAULT_USER_OBJECT_CLASS, new Uid(userId), delta, new OperationOptionsBuilder().build());
+
+        // Then
+        assertNull(result);
+
+        User patchUser = updated.get();
+        assertEquals(2, patchUser.getAppMetadata().size());
+        assertTrue(patchUser.getAppMetadata().containsKey("text1"));
+        assertTrue(patchUser.getAppMetadata().containsKey("text2"));
+        assertEquals("a", patchUser.getAppMetadata().get("text1"));
+        assertNull(patchUser.getAppMetadata().get("text2"));
     }
 }

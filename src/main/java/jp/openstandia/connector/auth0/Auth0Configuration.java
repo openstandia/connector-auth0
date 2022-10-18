@@ -208,7 +208,8 @@ public class Auth0Configuration extends AbstractConfiguration {
             order = 18,
             displayMessageKey = "User Metadata Schema",
             helpMessageKey = "Define custom schema for user metadata. The format is \"fieldName$dataType\". " +
-                    "The dataType is selected from \"string\", \"stringArray\", \"number\", \"numberArray\", and \"object\". ",
+                    "The dataType is selected from \"string\", \"stringArray\", \"long\", \"longArray\", " +
+                    "\"object\", and \"objectArray\". ",
             required = false,
             confidential = false)
     public String[] getUserMetadataSchema() {
@@ -223,7 +224,8 @@ public class Auth0Configuration extends AbstractConfiguration {
             order = 19,
             displayMessageKey = "App Metadata Schema",
             helpMessageKey = "Define custom schema for app metadata. The format is \"fieldName$dataType\". " +
-                    "The dataType is selected from \"string\", \"stringArray\", \"number\", \"numberArray\", and \"object\". ",
+                    "The dataType is selected from \"string\", \"stringArray\", \"long\", \"longArray\", " +
+                    "\"object\", and \"objectArray\". ",
             required = false,
             confidential = false)
     public String[] getAppMetadataSchema() {
