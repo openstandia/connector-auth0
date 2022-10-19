@@ -745,9 +745,6 @@ public class Auth0UserHandler {
         }
 
         private boolean hasChange(Map<?, ?>... map) {
-            if (map == null) {
-                return true;
-            }
             return Arrays.stream(map).anyMatch(m -> m != null && !m.isEmpty());
         }
     }
