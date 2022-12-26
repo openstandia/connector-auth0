@@ -856,7 +856,7 @@ public class Auth0UserHandler {
         builderWrapper.apply(ATTR_CREATED_AT, user.getCreatedAt(), Auth0Utils::toZoneDateTime);
         builderWrapper.apply(ATTR_UPDATED_AT, user.getUpdatedAt(), Auth0Utils::toZoneDateTime);
         builderWrapper.apply(ATTR_LAST_IP, user.getLastIP());
-        builderWrapper.apply(ATTR_LAST_LOGIN, user.getLastLogin());
+        builderWrapper.apply(ATTR_LAST_LOGIN, user.getLastLogin(), Auth0Utils::toZoneDateTime);
         builderWrapper.apply(ATTR_LOGINS_COUNT, user.getLoginsCount());
 
         // __NAME__
