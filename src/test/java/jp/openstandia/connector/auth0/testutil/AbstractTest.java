@@ -47,8 +47,12 @@ public abstract class AbstractTest {
     }
 
     protected ConnectorFacade newFacade() {
+        return newFacade(newConfiguration());
+    }
+
+    protected ConnectorFacade newFacade(Auth0Configuration conf) {
         ConnectorFacadeFactory factory = ConnectorFacadeFactory.getInstance();
-        APIConfiguration impl = TestHelpers.createTestConfiguration(LocalAuth0Connector.class, newConfiguration());
+        APIConfiguration impl = TestHelpers.createTestConfiguration(LocalAuth0Connector.class, conf);
         impl.getResultsHandlerConfiguration().setEnableAttributesToGetSearchResultsHandler(false);
         impl.getResultsHandlerConfiguration().setEnableNormalizingResultsHandler(false);
         impl.getResultsHandlerConfiguration().setEnableFilteredResultsHandler(false);

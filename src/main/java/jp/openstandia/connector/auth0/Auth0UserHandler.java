@@ -496,6 +496,8 @@ public class Auth0UserHandler {
         MetadataUpdater appMetadata = new MetadataUpdater(schema);
 
         boolean doUpdateUser = false;
+        boolean doUpdateEmail = false;
+        boolean doUpdatePhoneNumber = false;
 
         for (AttributeDelta delta : modifications) {
             if (delta.getName().equals(Uid.NAME)) {
@@ -507,8 +509,10 @@ public class Auth0UserHandler {
             else if (delta.getName().equals(Name.NAME)) {
                 if (isSMS()) {
                     modifyUser.setPhoneNumber(AttributeDeltaUtil.getAsStringValue(delta));
+                    doUpdatePhoneNumber = true;
                 } else {
                     modifyUser.setEmail(AttributeDeltaUtil.getAsStringValue(delta));
+                    doUpdateEmail = true;
                 }
                 doUpdateUser = true;
             }
@@ -517,6 +521,7 @@ public class Auth0UserHandler {
             else if (delta.getName().equals(ATTR_EMAIL)) {
                 modifyUser.setEmail(AttributeDeltaUtil.getAsStringValue(delta));
                 doUpdateUser = true;
+                doUpdateEmail = true;
 
             } else if (delta.getName().equals(ATTR_NICKNAME)) {
                 modifyUser.setNickname(AttributeDeltaUtil.getAsStringValue(delta));
@@ -525,6 +530,7 @@ public class Auth0UserHandler {
             } else if (delta.getName().equals(ATTR_PHONE_NUMBER)) {
                 modifyUser.setPhoneNumber(AttributeDeltaUtil.getAsStringValue(delta));
                 doUpdateUser = true;
+                doUpdatePhoneNumber = true;
 
             } else if (delta.getName().equals(ATTR_GIVEN_NAME)) {
                 modifyUser.setGivenName(AttributeDeltaUtil.getAsStringValue(delta));
@@ -607,6 +613,13 @@ public class Auth0UserHandler {
                     throwInvalidSchema(delta.getName());
                 }
             }
+        }
+
+        if (doUpdateEmail && configuration.isSettingEmailAsVerifiedForUpdateEmailEnabled()) {
+            modifyUser.setEmailVerified(true);
+        }
+        if (doUpdatePhoneNumber && configuration.isSettingPhoneAsVerifiedForUpdatePhoneEnabled()) {
+            modifyUser.setPhoneVerified(true);
         }
 
         if (doUpdateUser) {

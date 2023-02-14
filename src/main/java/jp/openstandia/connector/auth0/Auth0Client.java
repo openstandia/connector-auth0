@@ -64,6 +64,7 @@ public class Auth0Client {
         httpOptions.setConnectTimeout(configuration.getConnectionTimeoutInSeconds());
         httpOptions.setReadTimeout(configuration.getReadTimeoutInSeconds());
         httpOptions.setManagementAPIMaxRetries(configuration.getMaxRetries());
+        httpOptions.setMaxRequests(configuration.getMaxRequestsPerPoolableConnector());
 
         // HTTP Proxy
         applyProxyIfNecessary(httpOptions);

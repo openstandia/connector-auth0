@@ -26,6 +26,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     private GuardedString clientSecret;
     private int connectionTimeoutInSeconds = 10;
     private int readTimeoutInSeconds = 10;
+    private int maxRequestsPerPoolableConnector = 1;
     private int maxRetries = 3;
     private String httpProxyHost;
     private int httpProxyPort;
@@ -35,6 +36,8 @@ public class Auth0Configuration extends AbstractConfiguration {
     private String[] connectionFilter = new String[]{};
     private String[] userMetadataSchema = new String[]{};
     private String[] appMetadataSchema = new String[]{};
+    private boolean settingEmailAsVerifiedForUpdateEmailEnabled = false;
+    private boolean settingPhoneAsVerifiedForUpdatePhoneEnabled = false;
 
     @ConfigurationProperty(
             order = 1,
@@ -122,6 +125,20 @@ public class Auth0Configuration extends AbstractConfiguration {
 
     @ConfigurationProperty(
             order = 12,
+            displayMessageKey = "Max requests per PoolableConnector",
+            helpMessageKey = "Max requests for http client per PoolableConnector. (Default: 1)",
+            required = false,
+            confidential = false)
+    public int getMaxRequestsPerPoolableConnector() {
+        return maxRequestsPerPoolableConnector;
+    }
+
+    public void setMaxRequestsPerPoolableConnector(int maxRequestsPerPoolableConnector) {
+        this.maxRequestsPerPoolableConnector = maxRequestsPerPoolableConnector;
+    }
+
+    @ConfigurationProperty(
+            order = 13,
             displayMessageKey = "Max Retries",
             helpMessageKey = "Sets the maximum number of consecutive retries for Auth0 Management API requests that fail due to rate-limits being reached. (Default: 3)",
             required = false,
@@ -135,7 +152,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 13,
+            order = 14,
             displayMessageKey = "HTTP Proxy Host",
             helpMessageKey = "Hostname for the HTTP Proxy",
             required = false,
@@ -149,7 +166,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 14,
+            order = 15,
             displayMessageKey = "HTTP Proxy Port",
             helpMessageKey = "Port for the HTTP Proxy",
             required = false,
@@ -163,7 +180,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 15,
+            order = 16,
             displayMessageKey = "HTTP Proxy User",
             helpMessageKey = "Username for the HTTP Proxy Authentication",
             required = false,
@@ -177,7 +194,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 16,
+            order = 17,
             displayMessageKey = "HTTP Proxy Password",
             helpMessageKey = "Password for the HTTP Proxy Authentication",
             required = false,
@@ -191,7 +208,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 17,
+            order = 18,
             displayMessageKey = "Default Query Page Size",
             helpMessageKey = "Set default query page size. Default: 50",
             required = false,
@@ -205,7 +222,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 18,
+            order = 19,
             displayMessageKey = "User Metadata Schema",
             helpMessageKey = "Define custom schema for user metadata. The format is \"fieldName$dataType\". " +
                     "The dataType is selected from \"string\", \"stringArray\", \"long\", \"longArray\", " +
@@ -221,7 +238,7 @@ public class Auth0Configuration extends AbstractConfiguration {
     }
 
     @ConfigurationProperty(
-            order = 19,
+            order = 20,
             displayMessageKey = "App Metadata Schema",
             helpMessageKey = "Define custom schema for app metadata. The format is \"fieldName$dataType\". " +
                     "The dataType is selected from \"string\", \"stringArray\", \"long\", \"longArray\", " +
@@ -234,6 +251,34 @@ public class Auth0Configuration extends AbstractConfiguration {
 
     public void setUserMetadataSchema(String[] userMetadataSchema) {
         this.userMetadataSchema = userMetadataSchema;
+    }
+
+    @ConfigurationProperty(
+            order = 21,
+            displayMessageKey = "Set email as verified for update email",
+            helpMessageKey = "If true, \"email_verified\" is set as verified when the email is updated. (Default: false)",
+            required = false,
+            confidential = false)
+    public boolean isSettingEmailAsVerifiedForUpdateEmailEnabled() {
+        return settingEmailAsVerifiedForUpdateEmailEnabled;
+    }
+
+    public void setSettingEmailAsVerifiedForUpdateEmailEnabled(boolean settingEmailAsVerifiedForUpdateEmailEnabled) {
+        this.settingEmailAsVerifiedForUpdateEmailEnabled = settingEmailAsVerifiedForUpdateEmailEnabled;
+    }
+
+    @ConfigurationProperty(
+            order = 22,
+            displayMessageKey = "Set phone number as verified for update phone number",
+            helpMessageKey = "If true, \"phone_verified\" is set as verified when the phone number is updated. (Default: false)",
+            required = false,
+            confidential = false)
+    public boolean isSettingPhoneAsVerifiedForUpdatePhoneEnabled() {
+        return settingPhoneAsVerifiedForUpdatePhoneEnabled;
+    }
+
+    public void setSettingPhoneAsVerifiedForUpdatePhoneEnabled(boolean settingPhoneAsVerifiedForUpdatePhoneEnabled) {
+        this.settingPhoneAsVerifiedForUpdatePhoneEnabled = settingPhoneAsVerifiedForUpdatePhoneEnabled;
     }
 
     @Override
