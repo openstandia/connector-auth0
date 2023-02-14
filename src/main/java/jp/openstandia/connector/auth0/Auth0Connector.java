@@ -26,6 +26,10 @@ import org.identityconnectors.framework.common.objects.filter.FilterTranslator;
 import org.identityconnectors.framework.spi.*;
 import org.identityconnectors.framework.spi.operations.*;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -312,6 +316,9 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
 
     protected ConnectorException processException(Auth0Exception e) {
         if (e instanceof RateLimitException) {
+            RateLimitException rle = (RateLimitException) e;
+            LOG.warn("Detected rate limit. limit: {0}, remaining: {1}, reset(unix): {2} ({3})",
+                    rle.getLimit(), rle.getRemaining(), rle.getReset(), formatUnixTimestamp(rle.getReset()));
             return RetryableException.wrap(e.getMessage(), e);
         }
         if (e instanceof APIException) {
@@ -342,5 +349,11 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
         }
 
         throw new ConnectorIOException(e);
+    }
+
+    private static String formatUnixTimestamp(long unixTimestamp) {
+        Instant instant = Instant.ofEpochSecond(unixTimestamp);
+        ZonedDateTime zonedDateTime = ZonedDateTime.ofInstant(instant, ZoneId.systemDefault());
+        return zonedDateTime.format(DateTimeFormatter.ISO_DATE_TIME);
     }
 }
