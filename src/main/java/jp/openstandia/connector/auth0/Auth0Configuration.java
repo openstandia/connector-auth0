@@ -35,6 +35,8 @@ public class Auth0Configuration extends AbstractConfiguration {
     private String[] connectionFilter = new String[]{};
     private String[] userMetadataSchema = new String[]{};
     private String[] appMetadataSchema = new String[]{};
+    private boolean settingEmailAsVerifiedForUpdateEmailEnabled = false;
+    private boolean settingPhoneAsVerifiedForUpdatePhoneEnabled = false;
 
     @ConfigurationProperty(
             order = 1,
@@ -234,6 +236,34 @@ public class Auth0Configuration extends AbstractConfiguration {
 
     public void setUserMetadataSchema(String[] userMetadataSchema) {
         this.userMetadataSchema = userMetadataSchema;
+    }
+
+    @ConfigurationProperty(
+            order = 20,
+            displayMessageKey = "Set email as verified for update email",
+            helpMessageKey = "If true, \"email_verified\" is set as verified when the email is updated. (Default: false)",
+            required = false,
+            confidential = false)
+    public boolean isSettingEmailAsVerifiedForUpdateEmailEnabled() {
+        return settingEmailAsVerifiedForUpdateEmailEnabled;
+    }
+
+    public void setSettingEmailAsVerifiedForUpdateEmailEnabled(boolean settingEmailAsVerifiedForUpdateEmailEnabled) {
+        this.settingEmailAsVerifiedForUpdateEmailEnabled = settingEmailAsVerifiedForUpdateEmailEnabled;
+    }
+
+    @ConfigurationProperty(
+            order = 21,
+            displayMessageKey = "Set phone number as verified for update phone number",
+            helpMessageKey = "If true, \"phone_verified\" is set as verified when the phone number is updated. (Default: false)",
+            required = false,
+            confidential = false)
+    public boolean isSettingPhoneAsVerifiedForUpdatePhoneEnabled() {
+        return settingPhoneAsVerifiedForUpdatePhoneEnabled;
+    }
+
+    public void setSettingPhoneAsVerifiedForUpdatePhoneEnabled(boolean settingPhoneAsVerifiedForUpdatePhoneEnabled) {
+        this.settingPhoneAsVerifiedForUpdatePhoneEnabled = settingPhoneAsVerifiedForUpdatePhoneEnabled;
     }
 
     @Override

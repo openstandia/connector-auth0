@@ -17,10 +17,7 @@ package jp.openstandia.connector.auth0;
 
 import com.auth0.json.mgmt.users.User;
 import jp.openstandia.connector.auth0.testutil.AbstractTest;
-import org.identityconnectors.framework.common.objects.AttributeDelta;
-import org.identityconnectors.framework.common.objects.AttributeDeltaBuilder;
-import org.identityconnectors.framework.common.objects.OperationOptionsBuilder;
-import org.identityconnectors.framework.common.objects.Uid;
+import org.identityconnectors.framework.common.objects.*;
 import org.junit.jupiter.api.Test;
 
 import java.util.*;
@@ -35,6 +32,114 @@ class UserUpdateTest extends AbstractTest {
         Auth0Configuration conf = super.newConfiguration();
         conf.setAppMetadataSchema(new String[]{"text1$string", "text2$stringArray",});
         return conf;
+    }
+
+    @Test
+    void updateEmail() {
+        // Given
+        String userId = "auth0|61c5cc0078d9e300758160d6";
+
+        Set<AttributeDelta> delta = new HashSet<>();
+        delta.add(AttributeDeltaBuilder.build(Name.NAME, "new@example.com"));
+
+        AtomicReference<User> updated = new AtomicReference<>();
+        mockClient.updateUser = ((uid, patchUser) -> {
+            updated.set(patchUser);
+            return;
+        });
+
+        // When
+        Set<AttributeDelta> result = connector.updateDelta(DEFAULT_USER_OBJECT_CLASS, new Uid(userId), delta, new OperationOptionsBuilder().build());
+
+        // Then
+        assertNull(result);
+
+        User patchUser = updated.get();
+        assertEquals("new@example.com", patchUser.getEmail());
+        assertNull(patchUser.isEmailVerified());
+    }
+
+    @Test
+    void updateEmailWithVerifiedEnabled() {
+        Auth0Configuration conf = newConfiguration();
+        conf.setSettingEmailAsVerifiedForUpdateEmailEnabled(true);
+        connector = newFacade(conf);
+
+        // Given
+        String userId = "auth0|61c5cc0078d9e300758160d6";
+
+        Set<AttributeDelta> delta = new HashSet<>();
+        delta.add(AttributeDeltaBuilder.build(Name.NAME, "new@example.com"));
+
+        AtomicReference<User> updated = new AtomicReference<>();
+        mockClient.updateUser = ((uid, patchUser) -> {
+            updated.set(patchUser);
+            return;
+        });
+
+        // When
+        Set<AttributeDelta> result = connector.updateDelta(DEFAULT_USER_OBJECT_CLASS, new Uid(userId), delta, new OperationOptionsBuilder().build());
+
+        // Then
+        assertNull(result);
+
+        User patchUser = updated.get();
+        assertEquals("new@example.com", patchUser.getEmail());
+        assertTrue(patchUser.isEmailVerified());
+    }
+
+    @Test
+    void updatePhoneNumber() {
+        // Given
+        String userId = "sms|61c5cc0078d9e300758160d6";
+
+        Set<AttributeDelta> delta = new HashSet<>();
+        delta.add(AttributeDeltaBuilder.build(Name.NAME, "+819009001111"));
+
+        AtomicReference<User> updated = new AtomicReference<>();
+        mockClient.updateUser = ((uid, patchUser) -> {
+            updated.set(patchUser);
+            return;
+        });
+
+        // When
+        Set<AttributeDelta> result = connector.updateDelta(SMS_USER_OBJECT_CLASS, new Uid(userId), delta, new OperationOptionsBuilder().build());
+
+        // Then
+        assertNull(result);
+
+        User patchUser = updated.get();
+        assertEquals("+819009001111", patchUser.getPhoneNumber());
+        assertNull(patchUser.isPhoneVerified());
+    }
+
+    @Test
+    void updatePhoneNumberthVerifiedEnabled() {
+        Auth0Configuration conf = newConfiguration();
+        conf.setSettingPhoneAsVerifiedForUpdatePhoneEnabled(true);
+        connector = newFacade(conf);
+
+        // Given
+        String userId = "sms|61c5cc0078d9e300758160d6";
+
+        Set<AttributeDelta> delta = new HashSet<>();
+        delta.add(AttributeDeltaBuilder.build(Name.NAME, "+819009001111"));
+
+        AtomicReference<User> updated = new AtomicReference<>();
+        mockClient.updateUser = ((uid, patchUser) -> {
+            updated.set(patchUser);
+            return;
+        });
+
+        // When
+        Set<AttributeDelta> result = connector.updateDelta(SMS_USER_OBJECT_CLASS, new Uid(userId), delta, new OperationOptionsBuilder().build());
+
+        // Then
+        assertNull(result);
+
+        User patchUser = updated.get();
+        assertEquals("+819009001111", patchUser.getPhoneNumber());
+        assertTrue(patchUser.isPhoneVerified());
     }
 
     @Test
