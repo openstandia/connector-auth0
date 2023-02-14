@@ -12,7 +12,7 @@
 
     <groupId>jp.openstandia.connector</groupId>
     <artifactId>connector-auth0</artifactId>
-    <version>1.1.6-SNAPSHOT</version>
+    <version>1.2.0</version>
     <packaging>jar</packaging>
 
     <name>Auth0 Connector</name>
