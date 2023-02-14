@@ -154,7 +154,7 @@ public class Auth0Utils {
                 if (shouldReturn(attributesToGet, attrName)) {
                     AttributeInfo info = schema.get(attrName);
                     if (info == null) {
-                        LOGGER.warn("Detected undefined item in {}, ignored. key: {}, value: {}", prefix, kv.getKey(), kv.getValue());
+                        LOGGER.warn("Detected undefined item in {0}, ignored. key: {1}, value: {2}", prefix, kv.getKey(), kv.getValue());
                         return;
                     }
 
