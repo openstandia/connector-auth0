@@ -274,7 +274,7 @@ public class Auth0UserHandler {
                 .setUpdateable(false)
                 .build());
         builder.addAttributeInfo(AttributeInfoBuilder.define(ATTR_LOGINS_COUNT)
-                .setType(Long.class)
+                .setType(Integer.class)
                 .setCreateable(false)
                 .setUpdateable(false)
                 .build());
