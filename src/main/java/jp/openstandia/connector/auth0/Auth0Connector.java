@@ -343,9 +343,11 @@ public class Auth0Connector implements PoolableConnector, CreateOp, UpdateDeltaO
             if (ae.isAccessDenied()) {
                 throw new ConnectorSecurityException(ae);
             }
-            if (ae.getError().equals("invalid_query_string")) {
+            if (ae.getError() != null && ae.getError().equals("invalid_query_string")) {
                 return new InvalidAttributeValueException(e);
             }
+
+            LOG.warn(ae, "Detected unexpected Auth0 API error. statusCode: {0}, description: {1}", statusCode, ae.getDescription());
         }
 
         throw new ConnectorIOException(e);
